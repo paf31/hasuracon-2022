@@ -1,0 +1,44 @@
+resolver: lts-17.6
+packages:
+- .
+extra-deps:
+# - github: hasura/graphql-engine
+#   commit: 08b878bc9fa413e955a3aa671679c62c9c65a7d0
+#   subdirs: 
+#     - server
+- github: NorfairKing/autodocodec
+  commit: 45a112f16e132acde73994f6542ad996db6c5aa2
+  subdirs: 
+    - autodocodec
+    - autodocodec-openapi3
+- github: paf31/dovetail
+  commit: 60e00e247b643ad9c05e4137396ffddedcd8bcb6
+  subdirs: 
+    - dovetail
+    - dovetail-aeson
+    - dovetail-core
+- language-javascript-0.7.0.0@sha256:3eab0262b8ac5621936a4beab6a0f97d0e00a63455a8b0e3ac1547b4088dae7d,3898
+- purescript-0.14.5@sha256:511f50e7f267b65e1f656cdff9f9665073496efdf4375a3a86aa68496dae7281,18623
+- purescript-cst-0.4.0.0@sha256:bfe7be3962e83b645a4a8cd1805f31de17db3d3456962e1a2d17016fe5d7f96d,3861
+- servant-0.19
+- servant-client-0.19
+- servant-client-core-0.19
+- servant-server-0.19
+- servant-openapi3-2.0.1.4
+# - bytebuild-0.3.8.0@sha256:6894e64b6a3129cefb6c428e10777ff6d630198fded42de5ddf3578a183020ad,3022
+# - byteslice-0.2.6.0@sha256:ec2dab1d8730cea844d3b3fc6b890e038c32cac2595426904d93fad7c836f5c5,2482
+# - bytesmith-0.3.8.0@sha256:c17c0eb6702dfa209b2e5e7496d72f770d0b5dc2adf30da62f611966ebbb69f5,1863
+# - constraints-extras-0.3.2.0@sha256:0897821d9d0428f41cf2179b2a8e99e0053e96a98dd39d91a31ab2851052338f,1777
+# - contiguous-0.6.1@sha256:466a9d98ec2f08dcf1d9695181b426dc4d1af13ff3c1f62fb93a2c072abc5be3,1869
+# - dependent-map-0.4.0.0@sha256:ca2b131046f4340a1c35d138c5a003fe4a5be96b14efc26291ed35fd08c62221,1657
+# - dependent-sum-0.7.1.0@sha256:0e419237f5b86da3659772afff9cab355c0f8d5b3fdb15a5b30e673d8dc83941,2147
+# - ghc-heap-view-0.6.2@sha256:9e5cd76cfd23bd6d91788755967a82f68a1f25a1d6114910c2c78796079f2c32,3163
+# - immortal-0.2.2.1@sha256:df0066ff0de045bfe10bc13f85af33dcf9043d56bf70f5c943f45f0fbbde6f0c,1414
+# - ip-1.7.3@sha256:b2557931d271927898a57fae6883486bae29291ea09a6680fd9a176f45016205,3742
+# - monad-validate-1.2.0.0@sha256:9850f408431098b28806dd464b6825a88a0b56c84f380d7fe0454c1df9d6f881,3505
+# - natural-arithmetic-0.1.2.0@sha256:ac25a0561c8378530a62f02df83680afb193ed1059bb43e3130e0074b5b3f16b,3411
+# - primitive-offset-0.2.0.0@sha256:f8006927d5c0a3e83707610bbc5514aabe8f84a907ecb07edd2c815f58299dea,843
+# - reroute-0.6.0.0@sha256:43805b3fdc7ed1ba701cd10e249abc997b2291c8f374b8333bb2ea0e0d1dad0b,2382
+# - run-st-0.1.1.0@sha256:a43245bb23984089016772481bf52bfe63eaff0c5040303f69c9b15e80872fdc,883
+# - Spock-core-0.14.0.0@sha256:b55935c2c2a259a9966999239ee6ec5e41f7d933a58baade687ffa4b4a46fe32,3457
+# - tuples-0.1.0.0@sha256:7006c1cab721ad3e39cdbf1ccb07ec050b94d654cc6e39277d46241eee6ac7c9,1088

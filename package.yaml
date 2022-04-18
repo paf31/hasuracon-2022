@@ -1,0 +1,121 @@
+name:                graphql-supercharger
+version:             0.1.0.0
+github:              "githubuser/graphql-supercharger"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2022 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/graphql-supercharger#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+  dependencies:
+  - aeson
+  - dovetail
+  - dovetail-aeson
+  - dovetail-core
+  - gdw-api
+  - mtl
+  - purescript
+  - purescript-cst
+  - servant
+  - servant-server
+  - text
+  - vector
+  - wai
+  - warp
+  
+internal-libraries:
+  gdw-api:
+    source-dirs: graphql-engine/server/src-gdw-api
+    dependencies:
+    - aeson
+    - autodocodec
+    - autodocodec-openapi3
+    - base
+    - deepseq
+    - hashable
+    - lens
+    - openapi3
+    - scientific
+    - servant
+    - servant-client
+    - servant-client-core
+    - servant-openapi3
+    - text
+    - unordered-containers
+    default-extensions:
+    - AllowAmbiguousTypes
+    - BangPatterns
+    - BlockArguments
+    - ConstraintKinds
+    - DataKinds
+    - DefaultSignatures
+    - DeriveDataTypeable
+    - DeriveFoldable
+    - DeriveFunctor
+    - DeriveGeneric
+    - DeriveLift
+    - DeriveTraversable
+    - DerivingVia
+    - FlexibleContexts
+    - FlexibleInstances
+    - FunctionalDependencies
+    - GADTs
+    - GeneralizedNewtypeDeriving
+    - ImportQualifiedPost
+    - InstanceSigs
+    - LambdaCase
+    - MultiParamTypeClasses
+    - MultiWayIf
+    - NamedFieldPuns
+    - NoImplicitPrelude
+    - OverloadedStrings
+    - RankNTypes
+    - RecordWildCards
+    - RoleAnnotations
+    - ScopedTypeVariables
+    - StandaloneDeriving
+    - StrictData
+    - TupleSections
+    - TypeApplications
+    - TypeFamilies
+    - TypeOperators
+
+executables:
+  graphql-supercharger-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - graphql-supercharger
+    - gdw-api
+
+tests:
+  graphql-supercharger-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - graphql-supercharger
