@@ -26,19 +26,26 @@ library:
   source-dirs: src
   dependencies:
   - aeson
+  - burrito
+  - bytestring
   - dovetail
   - dovetail-aeson
   - dovetail-core
   - gdw-api
+  - lens
   - mtl
   - purescript
   - purescript-cst
   - servant
   - servant-server
   - text
+  - unordered-containers
   - vector
   - wai
+  - wai-logger
   - warp
+  - wreq
+  - yaml
   
 internal-libraries:
   gdw-api:

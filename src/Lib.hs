@@ -2,11 +2,13 @@
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DerivingStrategies    #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE TypeApplications      #-}
@@ -15,34 +17,117 @@
 module Lib
   ( main
   ) where
-
+  
+import Burrito qualified
+import Burrito.Internal.Render qualified 
+import Burrito.Internal.Type.Expression qualified as Burrito.Expression
+import Burrito.Internal.Type.Name qualified as Burrito.Name
+import Burrito.Internal.Type.Template qualified as Burrito.Template
+import Burrito.Internal.Type.Token qualified as Burrito.Token
+import Burrito.Internal.Type.Value qualified as Burrito.Value
+import Burrito.Internal.Type.Variable qualified as Burrito.Variable
+import Control.Lens ((^.))
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.Foldable (traverse_)
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HashMap
 import Data.Proxy
+import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Lazy qualified as TL
 import Data.Text.IO qualified as Text
+import Data.Text.Lazy qualified as TL
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Yaml qualified as Yaml
 import Dovetail
 import Dovetail.Aeson qualified as JSON 
 import Dovetail.Evaluate qualified as Evaluate 
+import Dovetail.FFI.Internal qualified as FFI
 import Dovetail.Prelude (stdlib)
 import GHC.Generics (Generic)
-import Language.PureScript qualified as P
-import Language.PureScript.CoreFn qualified as CoreFn
-import Language.PureScript.Label qualified as Label
-import Language.PureScript.PSString qualified as PSString
-import Language.PureScript.Names qualified as Names
 import Hasura.Backends.DataWrapper.API hiding (limit, offset)
 import Hasura.Backends.DataWrapper.API.V0.Query qualified as Query
+import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
+import Language.PureScript qualified as P
+import Language.PureScript.CoreFn qualified as CoreFn
+import Language.PureScript.CST qualified as CST
+import Language.PureScript.Label qualified as Label
+import Language.PureScript.Names qualified as Names
+import Language.PureScript.PSString qualified as PSString
 import Network.Wai
 import Network.Wai.Handler.Warp
+import Network.Wai.Logger
+import Network.Wreq qualified as Wreq
 import Servant (Server)
 import Servant.API
 import Servant.Server (Handler, err500, errBody, serve)
+import System.Environment (getArgs)
+import System.Exit (die)
+
+data Config = Config
+  { source :: FilePath
+  , imports :: HashMap Text URLImport
+  , engineUrl :: Text
+  , tables :: [TableImport]
+  } deriving (Show, Generic)
+    deriving anyclass Aeson.FromJSON
+
+data URLImport = URLImport
+  { uri :: String
+  , response :: Text
+  } deriving (Show, Generic)
+    deriving anyclass (Aeson.FromJSON)
+    
+data TableImport = TableImport
+  { name :: Text
+  , columns :: [ColumnImport]
+  } deriving (Show, Generic)
+    deriving anyclass (Aeson.FromJSON)
+    
+data ColumnImport = ColumnImport
+  { name :: Text
+  , dataType :: ScalarType.Type
+  } deriving (Show, Generic)
+    deriving anyclass (Aeson.FromJSON)
+    
+data ParsedURLImport = ParsedURLImport Burrito.Template P.SourceType
+
+parseType :: Text -> Either String P.SourceType
+parseType input = do
+  let tokens = CST.lex input
+      (_, parseResult) = CST.runParser (CST.ParserState tokens [] []) CST.parseType
+  either (Left . foldMap CST.prettyPrintError) (Right . CST.convertType "<input>") parseResult
+
+parseURLImport :: URLImport -> Either String ParsedURLImport
+parseURLImport URLImport{..} = 
+  ParsedURLImport
+    <$> maybe (Left "unable to parse URI template") Right (Burrito.parse uri)
+    <*> parseType response
+
+importToFFI :: (Text, ParsedURLImport) -> Eval () (ForeignImport ())
+importToFFI (name, ParsedURLImport url ty) = 
+    JSON.reify ty \(_ :: Proxy ty) ->
+      pure ForeignImport
+        { fv_name = P.Ident name
+        , fv_type = args `FFI.function` ty
+        , fv_value = toValue @() @(HashMap Text Text -> Eval () ty) \vals -> do
+            let uri = Burrito.expand [(Text.unpack k, Burrito.stringValue (Text.unpack v)) | (k, v) <- HashMap.toList vals] url
+            res <- liftIO $ Wreq.asJSON @_ @ty =<< Wreq.get uri
+            pure (res ^. Wreq.responseBody)
+        }
+  where
+    args = P.TypeApp P.nullSourceAnn P.tyRecord argsRow
+    argsRow = P.rowFromList ([P.srcRowListItem var P.tyString | var <- uriVars url], P.srcREmpty)
+
+uriVars :: Burrito.Template -> [Label.Label]
+uriVars = foldMap go . Burrito.Template.tokens where
+  go :: Burrito.Token.Token -> [Label.Label]
+  go (Burrito.Token.Expression o) = foldMap ((:[]) . toLabel . Burrito.Variable.name) (Burrito.Expression.variables o)
+  go Burrito.Token.Literal{} = mempty 
+  
+  toLabel name = Label.Label (PSString.mkString (Text.pack (Burrito.Internal.Render.builderToString (Burrito.Internal.Render.name name))))
 
 api :: Proxy Api
 api = Proxy
@@ -90,20 +175,32 @@ data QueryRequest = QueryRequest
 
 main :: IO ()
 main = do
-  moduleText <- Text.readFile "server.purs"
+  -- Read the module filename from the CLI arguments, and read the module source
+  [configFile] <- getArgs
+  Config{..} <- Yaml.decodeFileThrow configFile
+  moduleText <- Text.readFile source
+  
+  parsedImports <-
+    case traverse parseURLImport imports of
+      Left err -> die err
+      Right x -> pure x
 
   runInterpretWithDebugger () do
     traverse_ ffi stdlib
     
+    ffiDecls <- liftEval $ traverse importToFFI (HashMap.toList parsedImports)
+    ffi (FFI (ModuleName "Imports") ffiDecls)
+  
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
     
     (query, ty) <- eval (Just moduleName) "main"
+    liftIO $ print tables
     liftEval $ checkTypeOfMain ty \(_ :: Proxy ty) fields -> do
       let server :: Server Api
           server = getSchema :<|> runQuery
           
           getSchema :: Handler SchemaResponse
-          getSchema = pure (SchemaResponse caps [tableInfo])
+          getSchema = pure (SchemaResponse caps (map toTableInfo tables))
           
           fromPSType :: P.SourceType -> Type
           fromPSType ty 
@@ -113,16 +210,17 @@ main = do
             | ty == P.tyBoolean = BoolTy
             | otherwise = error $ "bad field type: " <> show ty
           
-          tableInfo :: TableInfo
-          tableInfo = TableInfo
-            { dtiName        = TableName "supercharger"
+          toTableInfo :: TableImport -> TableInfo
+          toTableInfo tbl = TableInfo
+            { dtiName        = TableName (name (tbl :: TableImport))
             , dtiColumns     = [ ColumnInfo 
-                                 { dciName = ColumnName (maybe (error "bad field name") id (PSString.decodeString fieldName))
-                                 , dciType = fromPSType fieldType
+                                 { dciName = ColumnName (name (col :: ColumnImport)) -- (maybe (error "bad field name") id (PSString.decodeString fieldName))
+                                 , dciType = dataType col --fromPSType fieldType
                                  , dciNullable = False
                                  , dciDescription = Nothing
                                  }
-                               | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
+                               -- | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
+                               | col <- columns tbl
                                ]
             , dtiPrimaryKey  = Nothing
             , dtiDescription = Nothing
@@ -153,4 +251,8 @@ main = do
           app :: Application
           app = serve api server
       
-      liftIO $ run 8081 app
+      liftIO do
+        withStdoutLogger $ \aplogger -> do
+          let settings = setPort 8081 $ setLogger aplogger defaultSettings
+          putStrLn "Listening on port 8081"
+          runSettings settings app

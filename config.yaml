@@ -1,0 +1,46 @@
+source: server.purs
+engineUrl: http://localhost:9000
+imports:
+  getUser:
+    uri: https://api.github.com/users{/user}/repos
+    response: | 
+      Prim.Array
+        { id :: Prim.Int
+        , name :: Prim.String
+        , stargazers_count :: Prim.Int
+        }
+tables:
+  - name: albums
+    columns:
+      - name: id
+        dataType: number
+      - name: title
+        dataType: string
+      - name: artist_id
+        dataType: number
+  - name: artists
+    columns:
+      - name: id
+        dataType: number
+      - name: name
+        dataType: string
+  - name: tracks
+    columns:
+      - name: album_id
+        dataType: number
+      - name: bytes
+        dataType: number
+      - name: composer
+        dataType: string
+      - name: genre_id
+        dataType: string
+      - name: id
+        dataType: number
+      - name: media_type_id
+        dataType: number
+      - name: milliseconds
+        dataType: number
+      - name: name
+        dataType: number
+      - name: unit_price
+        dataType: number

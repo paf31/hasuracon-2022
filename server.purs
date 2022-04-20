@@ -4,7 +4,7 @@ import Prelude.Array
 
 main _ =
   [
-    { integer: 42
-    , string: "Hello, World!"
+    { my_integer: 42
+    , my_string: "Hello, World!"
     }
   ]

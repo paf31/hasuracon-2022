@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 70b29765599de710e97e7b9a1d32d3f12749f77ae67ad254e9d3c769b00f14a1
+-- hash: 41eb1728efeabc97dd85cbd48993a5299ecfa6bc87fee6a972a7a490491d69db
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -35,19 +35,26 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , burrito
+    , bytestring
     , dovetail
     , dovetail-aeson
     , dovetail-core
     , gdw-api
+    , lens
     , mtl
     , purescript
     , purescript-cst
     , servant
     , servant-server
     , text
+    , unordered-containers
     , vector
     , wai
+    , wai-logger
     , warp
+    , wreq
+    , yaml
   default-language: Haskell2010
 
 library gdw-api
