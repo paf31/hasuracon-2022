@@ -7,6 +7,7 @@
 {-# LANGUAGE ImportQualifiedPost   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -18,6 +19,7 @@ module Lib
   ( main
   ) where
   
+import Autodocodec.Extended qualified as Codec
 import Burrito qualified
 import Burrito.Internal.Render qualified 
 import Burrito.Internal.Type.Expression qualified as Burrito.Expression
@@ -37,6 +39,7 @@ import Data.ByteString qualified as BS
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
+import Data.List.NonEmpty qualified as NEL
 import Data.Proxy
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -53,8 +56,11 @@ import Dovetail.FFI.Internal qualified as FFI
 import Dovetail.Prelude (stdlib)
 import GHC.Generics (Generic)
 import Hasura.Backends.DataWrapper.API hiding (limit, offset)
+import Hasura.Backends.DataWrapper.API.V0.Expression qualified as Expression
+import Hasura.Backends.DataWrapper.API.V0.OrderBy qualified as OrderBy
 import Hasura.Backends.DataWrapper.API.V0.Query qualified as Query
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
+import Hasura.Backends.DataWrapper.API.V0.Scalar.Value qualified as Scalar
 import Language.PureScript qualified as P
 import Language.PureScript.CoreFn qualified as CoreFn
 import Language.PureScript.CST qualified as CST
@@ -172,6 +178,18 @@ checkTypeOfMain _ _ =
 --   fromValue other =
 --     Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
 
+pattern And_ xs = (Expression.And (Codec.ValueWrapper xs))
+pattern Or_ xs = (Expression.Or (Codec.ValueWrapper xs))
+pattern Not_ x = (Expression.Not (Codec.ValueWrapper x))
+pattern Literal_ x = (Expression.Literal (Codec.ValueWrapper x))
+pattern Equal_ x y = (Expression.Equal (Codec.ValueWrapper2 x y))
+pattern NotEqual_ x y = (Expression.NotEqual (Codec.ValueWrapper2 x y))
+pattern In_ x y = (Expression.In (Codec.ValueWrapper2 x y))
+pattern IsNull_ x = (Expression.IsNull (Codec.ValueWrapper x))
+pattern IsNotNull_ x = (Expression.IsNotNull (Codec.ValueWrapper x))
+pattern Column_ x = (Expression.Column (Codec.ValueWrapper x))
+pattern ApplyOperator_ op x y = (Expression.ApplyOperator (Codec.ValueWrapper3 op x y))
+
 main :: IO ()
 main = do
   [configFile] <- getArgs
@@ -240,6 +258,52 @@ main = do
             \    " <> Text.unwords cols <> "\
             \  }\
             \}"
+
+          encodeValue :: Scalar.Value -> Aeson.Value
+          encodeValue (Scalar.String s) = Aeson.String s
+          encodeValue (Scalar.Number s) = Aeson.Number s
+          encodeValue (Scalar.Boolean s) = Aeson.Bool s
+          encodeValue Scalar.Null = Aeson.Null
+          
+          encodeOperator :: Expression.Operator -> Text
+          encodeOperator LessThan = "_lt"
+          encodeOperator LessThanOrEqual = "_lte"
+          encodeOperator GreaterThan = "_gt"
+          encodeOperator GreaterThanOrEqual = "_gte"
+          
+          encodeExpression :: Expression.Expression -> Aeson.Value
+          encodeExpression (And_ xs)
+            = Aeson.object [ "_and" .= map encodeExpression xs ]
+          encodeExpression (Or_ xs)
+            = Aeson.object [ "_or" .= map encodeExpression xs ]
+          encodeExpression (Not_ x)
+            = Aeson.object [ "_not" .= encodeExpression x ]
+          encodeExpression other = encodeSimpleExpression other
+          
+          encodeSimpleExpression :: Expression.Expression -> Aeson.Value
+          encodeSimpleExpression (Equal_ (Column_ (ColumnName c)) (Literal_ v))
+            = Aeson.object [ c .= Aeson.object [ "_eq" .= encodeValue v ] ]
+          encodeSimpleExpression (NotEqual_ (Column_ (ColumnName c)) (Literal_ v))
+            = Aeson.object [ c .= Aeson.object [ "_neq" .= encodeValue v ] ]
+          encodeSimpleExpression (In_ (Column_ (ColumnName c)) vs)
+            =  Aeson.object [ "_or" .= [ Aeson.object [ c .= Aeson.object [ "_eq" .= encodeValue v ] ] | v <- vs ] ]
+          encodeSimpleExpression (IsNull_ (Column_ (ColumnName c)))
+            = Aeson.object [ c .= Aeson.object [ "_is_null" .= True ] ]
+          encodeSimpleExpression (IsNotNull_ (Column_ (ColumnName c)))
+            = Aeson.object [ c .= Aeson.object [ "_is_null" .= False ] ]
+          encodeSimpleExpression (ApplyOperator_ op (Column_ (ColumnName c)) (Literal_ v))
+            = Aeson.object [ c .= Aeson.object [ encodeOperator op .= encodeValue v ] ]
+          encodeSimpleExpression other
+            = error $ "Unsupported expression: " <> show other
+          
+          encodeOrderBy :: [OrderBy.OrderBy] -> Aeson.Value
+          encodeOrderBy = Yaml.array . map one where
+            one (OrderBy.OrderBy (ColumnName col) dir) = 
+              Aeson.object
+                [ col .= case dir of
+                           OrderBy.Ascending -> "asc" :: Text
+                           OrderBy.Descending -> "desc"
+                ]
           
           runQuery :: Query -> Handler QueryResponse
           runQuery q = do
@@ -252,10 +316,8 @@ main = do
                 vars = Aeson.object
                          [ "limit"    .= Query.limit q
                          , "offset"   .= Query.offset q
-                         
-                         -- TODO : encode and send these
-                         -- , "where"    .= _
-                         -- , "order_by" .= _
+                         , "where"    .= maybe Aeson.Null encodeExpression (Query.where_ q)
+                         , "order_by" .= maybe Aeson.Null (encodeOrderBy . NEL.toList) (Query.orderBy q)
                          ]
                          
             res <- liftIO $ Wreq.asJSON @_ @Aeson.Value =<< Wreq.post (Text.unpack graphqlUrl) body
