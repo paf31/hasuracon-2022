@@ -26,16 +26,21 @@ import Burrito.Internal.Type.Template qualified as Burrito.Template
 import Burrito.Internal.Type.Token qualified as Burrito.Token
 import Burrito.Internal.Type.Value qualified as Burrito.Value
 import Burrito.Internal.Type.Variable qualified as Burrito.Variable
-import Control.Lens ((^.))
+import Control.Lens ((^.), (^..))
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.IO.Class (liftIO)
+import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Lens (key, _Array, _Object)
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.Foldable (traverse_)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.Proxy
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TE
 import Data.Text.IO qualified as Text
 import Data.Text.Lazy qualified as TL
 import Data.Vector (Vector)
@@ -151,31 +156,24 @@ checkTypeOfMain (P.ForAll _ _ _ ty _) f =
 checkTypeOfMain _ _ =
   throwErrorWithContext (Evaluate.OtherError "main must have type {} -> Array (Record r)")
 
-newtype WrappedMaybe a = WrappedMaybe (Maybe a)
-  deriving stock (Show, Eq, Generic)
-
-instance ToValue ctx a => ToValue ctx (WrappedMaybe a) where
-  toValue (WrappedMaybe Nothing) = 
-    Evaluate.Constructor (Names.ProperName "Nothing") []
-  toValue (WrappedMaybe (Just a)) = 
-    Evaluate.Constructor (Names.ProperName "Just") [toValue a]
-  
-  fromValue (Evaluate.Constructor (Names.ProperName "Nothing") []) =
-    pure (WrappedMaybe Nothing)
-  fromValue (Evaluate.Constructor (Names.ProperName "Just") [val]) =
-    WrappedMaybe . Just <$> fromValue val
-  fromValue other =
-    Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
-
-data QueryRequest = QueryRequest
-  { limit :: WrappedMaybe Integer
-  , offset :: WrappedMaybe Integer
-  } deriving stock (Show, Eq, Generic)
-    deriving anyclass (ToValue ctx)
+-- newtype WrappedMaybe a = WrappedMaybe (Maybe a)
+--   deriving stock (Show, Eq, Generic)
+-- 
+-- instance ToValue ctx a => ToValue ctx (WrappedMaybe a) where
+--   toValue (WrappedMaybe Nothing) = 
+--     Evaluate.Constructor (Names.ProperName "Nothing") []
+--   toValue (WrappedMaybe (Just a)) = 
+--     Evaluate.Constructor (Names.ProperName "Just") [toValue a]
+-- 
+--   fromValue (Evaluate.Constructor (Names.ProperName "Nothing") []) =
+--     pure (WrappedMaybe Nothing)
+--   fromValue (Evaluate.Constructor (Names.ProperName "Just") [val]) =
+--     WrappedMaybe . Just <$> fromValue val
+--   fromValue other =
+--     Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
 
 main :: IO ()
 main = do
-  -- Read the module filename from the CLI arguments, and read the module source
   [configFile] <- getArgs
   Config{..} <- Yaml.decodeFileThrow configFile
   moduleText <- Text.readFile source
@@ -193,9 +191,13 @@ main = do
   
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
     
-    (query, ty) <- eval (Just moduleName) "main"
-    liftIO $ print tables
-    liftEval $ checkTypeOfMain ty \(_ :: Proxy ty) fields -> do
+    -- (query, ty) <- eval (Just moduleName) "main"
+    -- TODO: parse main as a record with one config key per defined table
+    
+    -- TODO: add FFI declaration for each table that we can query, including
+    -- where clauses and pk lookups
+    do
+      -- liftEval $ checkTypeOfMain ty \(_ :: Proxy ty) _ -> do
       let server :: Server Api
           server = getSchema :<|> runQuery
           
@@ -230,23 +232,50 @@ main = do
           caps = Capabilities 
             { dcRelationships = False 
             }
+            
+          standardQuery :: Text -> [Text] -> Text
+          standardQuery tbl cols = 
+            "query ($limit: Int, $offset: Int, $where: " <> tbl <> "_bool_exp, $order_by: [" <> tbl <> "_order_by!]) {\
+            \  " <> tbl <> "(limit: $limit, offset: $offset, order_by: $order_by, where: $where) {\
+            \    " <> Text.unwords cols <> "\
+            \  }\
+            \}"
           
           runQuery :: Query -> Handler QueryResponse
           runQuery q = do
-            let req = QueryRequest 
-                  { limit = WrappedMaybe (fmap fromIntegral (Query.limit q))
-                  , offset = WrappedMaybe (fmap fromIntegral (Query.offset q))
-                  }
-            response <- liftIO . runEval () $ fromValueRHS @() @(QueryRequest -> Eval () (Vector ty)) query req
-            case response of
-              Left err -> do
-                -- todo : print error
-                throwError $ err500 { errBody = "Unexpected error during evaluation, see logs." }
-              Right rows -> do
-                let getObject :: Aeson.Value -> Handler Aeson.Object
-                    getObject (Aeson.Object o) = pure o
-                    getObject _ = throwError $ err500 { errBody = "Unexpected error during evaluation, see logs." }
-                QueryResponse <$> traverse (getObject . Aeson.toJSON) (Vector.toList rows)
+            let graphqlUrl = engineUrl <> "/v1/graphql"
+                TableName tbl = from q
+                body = Aeson.object
+                         [ "query"     .= standardQuery tbl (HashMap.keys (fields q))
+                         , "variables" .= vars
+                         ]
+                vars = Aeson.object
+                         [ "limit"    .= Query.limit q
+                         , "offset"   .= Query.offset q
+                         
+                         -- TODO : encode and send these
+                         -- , "where"    .= _
+                         -- , "order_by" .= _
+                         ]
+                         
+            res <- liftIO $ Wreq.asJSON @_ @Aeson.Value =<< Wreq.post (Text.unpack graphqlUrl) body
+            -- pure (res ^. Wreq.responseBody)
+            -- let req = QueryRequest 
+            --       { limit = WrappedMaybe (fmap fromIntegral (Query.limit q))
+            --       , offset = WrappedMaybe (fmap fromIntegral (Query.offset q))
+            --       }
+            -- response <- liftIO . runEval () $ fromValueRHS @() @(QueryRequest -> Eval () (Vector ty)) query req
+            -- case response of
+            --   Left err -> do
+            --     -- todo : print error
+            --     throwError $ err500 { errBody = "Unexpected error during evaluation, see logs." }
+            --   Right rows -> do
+            -- let getObject :: Aeson.Value -> Handler Aeson.Object
+            --     getObject (Aeson.Object o) = pure o
+            --     getObject _ = throwError $ err500 { errBody = "Unexpected error during evaluation, see logs." }
+            -- QueryResponse <$> getObject (res ^. Wreq.responseBody)
+            
+            pure (QueryResponse (res ^.. Wreq.responseBody . key "data" . key tbl . _Array . traverse . _Object))
           
           app :: Application
           app = serve api server

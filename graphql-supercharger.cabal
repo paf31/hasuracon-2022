@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 41eb1728efeabc97dd85cbd48993a5299ecfa6bc87fee6a972a7a490491d69db
+-- hash: 8e2da157524e2f9da9ccc932657f550211c4c94385149c00b578551245ba1221
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -42,6 +42,7 @@ library
     , dovetail-core
     , gdw-api
     , lens
+    , lens-aeson
     , mtl
     , purescript
     , purescript-cst

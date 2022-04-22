@@ -33,6 +33,7 @@ library:
   - dovetail-core
   - gdw-api
   - lens
+  - lens-aeson
   - mtl
   - purescript
   - purescript-cst
