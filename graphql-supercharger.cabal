@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 8e2da157524e2f9da9ccc932657f550211c4c94385149c00b578551245ba1221
+-- hash: 8f9a5c37854fb995eeda81f1f177e3ee4db9ea4ad60a3cda6b7b4f82350855b5
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -27,11 +27,33 @@ source-repository head
 
 library
   exposed-modules:
-      Lib
+      Config
+      HasuraClient
+      HTTP
+      Server
+      Translate
   other-modules:
       Paths_graphql_supercharger
   hs-source-dirs:
       src
+  default-extensions:
+      BlockArguments
+      DeriveAnyClass
+      DeriveGeneric
+      DerivingStrategies
+      DuplicateRecordFields
+      FlexibleInstances
+      ImportQualifiedPost
+      MultiParamTypeClasses
+      OverloadedStrings
+      PatternSynonyms
+      RankNTypes
+      RecordWildCards
+      ScopedTypeVariables
+      NamedFieldPuns
+      TypeApplications
+      ViewPatterns
+  ghc-options: -Wall
   build-depends:
       aeson
     , base >=4.7 && <5

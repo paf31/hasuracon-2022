@@ -2,7 +2,7 @@
 
 module Main where
 
-import Lib qualified
+import Server qualified
 
 main :: IO ()
-main = Lib.main
+main = Server.main

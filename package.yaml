@@ -24,6 +24,8 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -Wall
   dependencies:
   - aeson
   - burrito
@@ -47,6 +49,23 @@ library:
   - warp
   - wreq
   - yaml
+  default-extensions:
+  - BlockArguments
+  - DeriveAnyClass
+  - DeriveGeneric
+  - DerivingStrategies
+  - DuplicateRecordFields
+  - FlexibleInstances
+  - ImportQualifiedPost
+  - MultiParamTypeClasses
+  - OverloadedStrings
+  - PatternSynonyms
+  - RankNTypes
+  - RecordWildCards
+  - ScopedTypeVariables
+  - NamedFieldPuns
+  - TypeApplications
+  - ViewPatterns
   
 internal-libraries:
   gdw-api:
