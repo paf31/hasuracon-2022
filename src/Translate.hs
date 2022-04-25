@@ -16,7 +16,6 @@ import Hasura.Backends.DataWrapper.API.V0.Table qualified as Table
 import HasuraClient qualified
 -- import Language.PureScript qualified as P
 -- import Language.PureScript.CoreFn qualified as CoreFn
-import Network.Wreq qualified as Wreq
 
 pattern And_, Or_ :: [Expression] -> Expression
 pattern And_ xs = (Expression.And (Codec.ValueWrapper xs))

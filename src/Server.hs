@@ -22,6 +22,7 @@ import Language.PureScript.CoreFn qualified as CoreFn
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Network.Wai.Logger
+import Program qualified
 import Servant (Server)
 import Servant.API
 import Servant.Server (Handler, serve)
@@ -31,25 +32,73 @@ import Translate qualified
 api :: Proxy API.Api
 api = Proxy
 
-checkTypeOfMain 
-  :: P.SourceType
-  -> (forall o. JSON.Serializable ctx o => Proxy o -> [P.RowListItem P.SourceAnn] -> Eval ctx r)
-  -> Eval ctx r
-checkTypeOfMain ty f 
-  | P.TypeApp _ (P.TypeApp _ fn _) ty1 <- ty
-  , fn == P.tyFunction
-  , P.TypeApp _ arr ty2 <- ty1
-  , arr == P.tyArray
-  , P.TypeApp _ rec_ ty3 <- ty2
-  , rec_ == P.tyRecord
-  = JSON.reify ty2 \proxy ->
-      let (knownFields, _) = P.rowToSortedList ty3
-       in f proxy knownFields
-checkTypeOfMain (P.ForAll _ _ _ ty _) f =
-  checkTypeOfMain ty f
-checkTypeOfMain _ _ =
-  throwErrorWithContext (Evaluate.OtherError "main must have type {} -> Array (Record r)")
+mkServer :: Config.Config -> Server API.Api
+mkServer Config.Config{..} = getSchema :<|> runQuery where
+  getSchema :: Handler API.SchemaResponse
+  getSchema = pure (API.SchemaResponse capabilities (map toTableInfo tables)) where
+    toTableInfo :: Config.TableImport -> Table.TableInfo
+    toTableInfo tbl = Table.TableInfo
+      { dtiName        = Table.TableName (Config.name (tbl :: Config.TableImport))
+      , dtiColumns     = [ Column.ColumnInfo 
+                           { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport)) -- (maybe (error "bad field name") id (PSString.decodeString fieldName))
+                           , dciType = Config.dataType col --fromPSType fieldType
+                           , dciNullable = False
+                           , dciDescription = Nothing
+                           }
+                         -- | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
+                         | col <- Config.columns tbl
+                         ]
+      , dtiPrimaryKey  = Nothing
+      , dtiDescription = Nothing
+      }
+    
+    capabilities :: API.Capabilities
+    capabilities = API.Capabilities 
+      { dcRelationships = False 
+      }
+                
+  runQuery :: API.Query -> Handler API.QueryResponse
+  runQuery = 
+    fmap API.QueryResponse
+    . liftIO
+    . HasuraClient.runQuery engineUrl
+    . Translate.toHasuraQuery
 
+main :: IO ()
+main = do
+  [configFile] <- getArgs
+  config@Config.Config{..} <- Yaml.decodeFileThrow configFile
+  moduleText <- Text.readFile source
+
+  httpImports <- HTTP.importAll imports
+
+  runInterpretWithDebugger () do
+    traverse_ ffi stdlib
+    
+    ffiDecls <- liftEval httpImports
+    ffi (FFI (ModuleName "Imports") ffiDecls)
+  
+    CoreFn.Module{ CoreFn.moduleName } <- build moduleText
+    
+    -- (untypedProgram, ty) <- eval (Just moduleName) "main"
+    -- let x = Program.inferTables ty untypedProgram
+    -- TODO: parse main as a record with one config key per defined table
+    
+    -- TODO: add FFI declaration for each table that we can query, including
+    -- where clauses and pk lookups
+    do
+      -- liftEval $ checkTypeOfMain ty \(_ :: Proxy ty) _ -> do
+      let server = mkServer config
+          
+          app :: Application
+          app = serve api server
+      
+      liftIO do
+        withStdoutLogger $ \aplogger -> do
+          let settings = setPort 8081 $ setLogger aplogger defaultSettings
+          putStrLn "Listening on port 8081"
+          runSettings settings app
+          
 -- newtype WrappedMaybe a = WrappedMaybe (Maybe a)
 --   deriving stock (Show, Eq, Generic)
 -- 
@@ -65,68 +114,7 @@ checkTypeOfMain _ _ =
 --     WrappedMaybe . Just <$> fromValue val
 --   fromValue other =
 --     Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
-
-main :: IO ()
-main = do
-  [configFile] <- getArgs
-  Config.Config{..} <- Yaml.decodeFileThrow configFile
-  moduleText <- Text.readFile source
-
-  httpImports <- HTTP.importAll imports
-
-  runInterpretWithDebugger () do
-    traverse_ ffi stdlib
-    
-    ffiDecls <- liftEval httpImports
-    ffi (FFI (ModuleName "Imports") ffiDecls)
-  
-    -- CoreFn.Module{ CoreFn.moduleName } <- build moduleText
-    
-    -- (query, ty) <- eval (Just moduleName) "main"
-    -- TODO: parse main as a record with one config key per defined table
-    
-    -- TODO: add FFI declaration for each table that we can query, including
-    -- where clauses and pk lookups
-    do
-      -- liftEval $ checkTypeOfMain ty \(_ :: Proxy ty) _ -> do
-      let server :: Server API.Api
-          server = getSchema :<|> runQuery
-          
-          getSchema :: Handler API.SchemaResponse
-          getSchema = pure (API.SchemaResponse caps (map toTableInfo tables)) where
-            toTableInfo :: Config.TableImport -> Table.TableInfo
-            toTableInfo tbl = Table.TableInfo
-              { dtiName        = Table.TableName (Config.name (tbl :: Config.TableImport))
-              , dtiColumns     = [ Column.ColumnInfo 
-                                   { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport)) -- (maybe (error "bad field name") id (PSString.decodeString fieldName))
-                                   , dciType = Config.dataType col --fromPSType fieldType
-                                   , dciNullable = False
-                                   , dciDescription = Nothing
-                                   }
-                                 -- | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
-                                 | col <- Config.columns tbl
-                                 ]
-              , dtiPrimaryKey  = Nothing
-              , dtiDescription = Nothing
-              }
-            
-            caps :: API.Capabilities
-            caps = API.Capabilities 
-              { dcRelationships = False 
-              }
-                        
-          runQuery :: API.Query -> Handler API.QueryResponse
-          runQuery = fmap API.QueryResponse. liftIO . HasuraClient.runQuery engineUrl . Translate.toHasuraQuery
-          
-          app :: Application
-          app = serve api server
-      
-      liftIO do
-        withStdoutLogger $ \aplogger -> do
-          let settings = setPort 8081 $ setLogger aplogger defaultSettings
-          putStrLn "Listening on port 8081"
-          runSettings settings app
-          
+--
 -- fromPSType :: P.SourceType -> Type
 -- fromPSType ty 
 --   | ty == P.tyInt = NumberTy

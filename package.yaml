@@ -51,12 +51,14 @@ library:
   - yaml
   default-extensions:
   - BlockArguments
+  - DataKinds
   - DeriveAnyClass
   - DeriveGeneric
   - DerivingStrategies
   - DuplicateRecordFields
   - FlexibleInstances
   - ImportQualifiedPost
+  - KindSignatures
   - MultiParamTypeClasses
   - OverloadedStrings
   - PatternSynonyms
