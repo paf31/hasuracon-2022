@@ -5,7 +5,7 @@ module Server
 import Config qualified
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (traverse_)
+import Data.Foldable (fold, traverse_)
 import Data.Proxy
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -13,6 +13,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Data.Yaml qualified as Yaml
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
 import Dovetail
 import Dovetail.Aeson qualified as JSON 
 import Dovetail.Evaluate qualified as Evaluate
@@ -77,28 +79,38 @@ mkServer tableConfigs Config.Config{..} = getSchema :<|> runQuery where
         let newPredicate = 
               case HasuraClient.where_ hasuraQuery of
                 Nothing -> 
-                  Just $ HasuraClient.Atom predicate
+                  Just predicate
                 Just predicate' -> 
-                  Just $ HasuraClient.And [HasuraClient.Atom predicate, predicate']
+                  Just $ HasuraClient.And [predicate, predicate']
             newQuery = hasuraQuery { HasuraClient.where_ = newPredicate }
         res <- liftIO $ HasuraClient.runQuery engineUrl newQuery
         pure (API.QueryResponse res)
       Nothing ->
         throwError err404
       
-
-filterModule :: Text
-filterModule =
-  "module Filter where\n\
+predicateModule :: Text
+predicateModule =
+  "module Predicate where\n\
   \\n\
   \foreign import data Column :: Type -> Type\n\
   \\n\
-  \foreign import data Filter :: Type\n\
+  \foreign import data Predicate :: Type\n\
   \\n\
-  \foreign import eq :: forall a. Column a -> a -> Filter"
+  \foreign import eq :: forall a. Column a -> a -> Predicate\n\
+  \foreign import neq :: forall a. Column a -> a -> Predicate\n\
+  \foreign import in_ :: forall a. Column a -> Array a -> Predicate\n\
+  \foreign import isNull :: forall a. Column a -> Predicate\n\
+  \foreign import isNotNull :: forall a. Column a -> Predicate\n\
+  \foreign import lt :: forall a. Column a -> a -> Predicate\n\
+  \foreign import lte :: forall a. Column a -> a -> Predicate\n\
+  \foreign import gt :: forall a. Column a -> a -> Predicate\n\
+  \foreign import gte :: forall a. Column a -> a -> Predicate\n\
+  \foreign import and :: Array Predicate -> Predicate\n\
+  \foreign import or :: Array Predicate -> Predicate\n\
+  \foreign import not :: Predicate -> Predicate"
 
 data TableConfig = TableConfig
-  { predicate :: Evaluate.ForeignType HasuraClient.SimplePredicate
+  { predicate :: Evaluate.ForeignType HasuraClient.Predicate
   }
   deriving stock Generic
   deriving anyclass (ToValue ctx)
@@ -117,17 +129,75 @@ main = do
     ffiDecls <- liftEval httpImports
     ffi (FFI (ModuleName "Imports") ffiDecls)
 
-    _ <- build filterModule
-    loadEnv do
-      let fromValue (Evaluate.String s) = Scalar.String s
-          fromValue (Evaluate.Int i) = Scalar.Number (fromIntegral i)
-          fromValue (Evaluate.Number d) = Scalar.Number (realToFrac d)
-          fromValue (Evaluate.Bool b) = Scalar.Boolean b
-      Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.SimplePredicate))
-        (P.ModuleName "Filter") "eq" 
-        \col val -> do
-          pure (Evaluate.ForeignType (HasuraClient.Eq (HasuraClient.Column col) (fromValue val)))
-  
+    _ <- build predicateModule
+    
+    let toScalar (Evaluate.String s) = Scalar.String s
+        toScalar (Evaluate.Int i) = Scalar.Number (fromIntegral i)
+        toScalar (Evaluate.Number d) = Scalar.Number (realToFrac d)
+        toScalar (Evaluate.Bool b) = Scalar.Boolean b
+        toScalar _ = error "cannot convert value"
+    loadEnv $ fold
+      [ Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "eq" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Eq (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "neq" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Neq (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Text -> Vector (Value ()) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "in_" 
+          \col vals -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.In (HasuraClient.Column col) (map toScalar (Vector.toList vals)))))
+        
+      , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "isNull" 
+          \col -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.IsNull (HasuraClient.Column col))))
+        
+      , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "isNotNull" 
+          \col -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.IsNotNull (HasuraClient.Column col))))
+        
+      , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "lt" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lt (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "lte" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lte (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "gt" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gt (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "gte" 
+          \col val -> do
+            pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gte (HasuraClient.Column col) (toScalar val))))
+        
+      , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "and" 
+          \xs -> do
+            pure (Evaluate.ForeignType (HasuraClient.And (map Evaluate.getForeignType (Vector.toList xs))))
+        
+      , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "or" 
+          \xs -> do
+            pure (Evaluate.ForeignType (HasuraClient.Or (map Evaluate.getForeignType (Vector.toList xs))))
+        
+      , Evaluate.builtIn @() @(Evaluate.ForeignType HasuraClient.Predicate -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
+          (P.ModuleName "Predicate") "not" 
+          \p -> do
+            pure (Evaluate.ForeignType (HasuraClient.Not (Evaluate.getForeignType p)))
+      ]
+      
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
     
     -- TODO: check the type matches the config

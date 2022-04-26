@@ -1,11 +1,11 @@
 module Main where
 
-import Filter
 import Imports
+import Predicate
 
 main =
   { albums: \{ id, artist_id, title } ->
     { predicate: 
-        artist_id `eq` 1
+        artist_id `in_` [1, 2, 3]
     }
   }
