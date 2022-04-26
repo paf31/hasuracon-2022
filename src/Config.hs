@@ -10,7 +10,7 @@ data Config = Config
   { source :: FilePath
   , imports :: HashMap Text URLImport
   , engineUrl :: Text
-  , tables :: [TableImport]
+  , tables :: HashMap Text TableImport
   } deriving (Show, Generic)
     deriving anyclass Aeson.FromJSON
 
@@ -21,8 +21,7 @@ data URLImport = URLImport
     deriving anyclass (Aeson.FromJSON)
     
 data TableImport = TableImport
-  { name :: Text
-  , columns :: [ColumnImport]
+  { columns :: [ColumnImport]
   } deriving (Show, Generic)
     deriving anyclass (Aeson.FromJSON)
     

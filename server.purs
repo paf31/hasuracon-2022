@@ -1,10 +1,11 @@
 module Main where
 
-import Prelude.Array
+import Filter
+import Imports
 
-main _ =
-  [
-    { my_integer: 42
-    , my_string: "Hello, World!"
+main =
+  { albums: \{ id, artist_id, title } ->
+    { predicate: 
+        artist_id `eq` 1
     }
-  ]
+  }

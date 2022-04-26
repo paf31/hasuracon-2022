@@ -10,7 +10,7 @@ imports:
         , stargazers_count :: Prim.Int
         }
 tables:
-  - name: albums
+  albums:
     columns:
       - name: id
         dataType: number
@@ -18,13 +18,13 @@ tables:
         dataType: string
       - name: artist_id
         dataType: number
-  - name: artists
+  artists:
     columns:
       - name: id
         dataType: number
       - name: name
         dataType: string
-  - name: tracks
+  tracks:
     columns:
       - name: album_id
         dataType: number
