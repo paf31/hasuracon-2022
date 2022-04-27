@@ -6,6 +6,6 @@ import Predicate
 main =
   { albums: \{ id, artist_id, title } ->
     { predicate: 
-        artist_id `in_` [1, 2, 3]
+        artist_id > 5 && artist_id < 10
     }
   }

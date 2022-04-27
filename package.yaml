@@ -42,6 +42,7 @@ library:
   - servant
   - servant-server
   - text
+  - unix
   - unordered-containers
   - vector
   - wai

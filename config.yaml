@@ -43,4 +43,4 @@ tables:
       - name: name
         dataType: number
       - name: unit_price
-        dataType: number
+        dataType: number 

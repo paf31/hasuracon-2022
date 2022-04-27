@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: febf946782b81c93e0a37d9d54269ceb9a5f4ef9bdf53bf16e05538b2145c9d6
+-- hash: 81c3cf1f1b74b3babae4b0311114b55cb411f8c34fdb01be9c6dc5c59fd0e097
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -74,6 +74,7 @@ library
     , servant
     , servant-server
     , text
+    , unix
     , unordered-containers
     , vector
     , wai
