@@ -1,11 +1,12 @@
 module Main where
 
 import Imports
-import Predicate
+import Supercharger
 
-main =
-  { albums: \{ id, artist_id, title } ->
-    { predicate: 
-        artist_id > 5 && artist_id < 10
+config :: Config -> Config
+config =
+  _ { albums = \{ artist_id } ->
+      { predicate: 
+          artist_id > 5.0 && artist_id < 10.0
+      }
     }
-  }

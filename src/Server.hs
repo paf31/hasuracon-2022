@@ -3,7 +3,6 @@ module Server
   ) where
 
 import Config qualified
-import Control.Monad.Error.Class (throwError)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.Proxy
@@ -30,7 +29,7 @@ import Program qualified
 import Servant (Server)
 import Servant.API
 import System.Posix.Signals qualified as Signal
-import Servant.Server (Handler, err404, serve)
+import Servant.Server (Handler, serve)
 import System.Environment (getArgs)
 -- import System.Exit (die)
 import Translate qualified
@@ -78,9 +77,10 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
             newQuery = hasuraQuery { HasuraClient.where_ = newPredicate }
         res <- liftIO $ HasuraClient.runQuery engineUrl newQuery
         pure (API.QueryResponse res)
-      Nothing ->
-        throwError err404
-
+      Nothing -> do
+        res <- liftIO $ HasuraClient.runQuery engineUrl hasuraQuery
+        pure (API.QueryResponse res)
+        
 loadConfig
   :: Config.Config
   -> Eval () [ForeignImport ()]
@@ -93,9 +93,9 @@ loadConfig config httpImports = do
     ffiDecls <- liftEval httpImports
     ffi (FFI (ModuleName "Imports") ffiDecls)
     
-    Program.install
+    _ <- Program.install (Config.tables config)
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
-    Program.evalConfig config moduleName "main"
+    Program.evalConfig config moduleName
 
 main :: IO ()
 main = do
