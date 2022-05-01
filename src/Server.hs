@@ -34,6 +34,19 @@ import System.Environment (getArgs)
 -- import System.Exit (die)
 import Translate qualified
 
+
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
+import GHC.Generics (Generic)
+import Language.PureScript qualified as P
+import Language.PureScript.Names qualified as Names
+import Language.PureScript.PSString qualified as PSString
+import Language.PureScript.Label qualified as Label
+import Dovetail.FFI.Internal qualified as FFI
+import Dovetail.FFI.Internal qualified as FFI
+import Dovetail.FFI.Internal qualified as FFI
+import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
+
 api :: Proxy API.Api
 api = Proxy
 
@@ -93,9 +106,93 @@ loadConfig config httpImports = do
     ffiDecls <- liftEval httpImports
     ffi (FFI (ModuleName "Imports") ffiDecls)
     
+    ffi (FFI (ModuleName "Client") (map (tableToImport (Config.engineUrl config)) (HashMap.toList (Config.tables config))))
+    
     _ <- Program.install (Config.tables config)
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
     Program.evalConfig config moduleName
+
+-- newtype WrappedMaybe a = WrappedMaybe (Maybe a)
+--   deriving stock (Show, Eq, Generic)
+-- 
+-- instance ToValue ctx a => ToValue ctx (WrappedMaybe a) where
+--   toValue (WrappedMaybe Nothing) = 
+--     Evaluate.Constructor (Names.ProperName "Nothing") []
+--   toValue (WrappedMaybe (Just a)) = 
+--     Evaluate.Constructor (Names.ProperName "Just") [toValue a]
+-- 
+--   fromValue (Evaluate.Constructor (Names.ProperName "Nothing") []) =
+--     pure (WrappedMaybe Nothing)
+--   fromValue (Evaluate.Constructor (Names.ProperName "Just") [val]) =
+--     WrappedMaybe . Just <$> fromValue val
+--   fromValue other =
+--     Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
+
+data FFIQuery = FFIQuery
+  { where_ :: Evaluate.ForeignType HasuraClient.Predicate
+  , limit :: Integer
+  , offset :: Integer
+  } 
+  deriving stock (Generic)
+  deriving anyclass (Evaluate.ToValue ctx)
+
+tableToImport :: Text -> (Text, Config.TableImport) -> ForeignImport ()
+tableToImport engineUrl (name, Config.TableImport columns) = 
+    ForeignImport
+      { fv_name = P.Ident name
+      , fv_type = (cols `FFI.function` args) `FFI.function` FFI.array result
+      , fv_value = toValue @() @((HashMap Text Text -> Eval () FFIQuery) -> Eval () (Vector (HashMap Text (Evaluate.Value ())))) \f -> do
+          let columnsRecord = HashMap.fromList [ (col, col) | Config.ColumnImport col _ <- columns ]
+          query <- f columnsRecord
+          let hasuraQuery = HasuraClient.Query
+                { HasuraClient.table = name -- :: Text
+                , HasuraClient.fields = [ HasuraClient.Column col | Config.ColumnImport col _ <- columns] -- :: [Column]
+                , HasuraClient.where_ = Just (Evaluate.getForeignType (where_ query)) -- :: Maybe Predicate
+                , HasuraClient.orderBy = Nothing -- :: Maybe (NonEmpty (Column, OrderDirection))
+                , HasuraClient.limit = Just (fromIntegral (limit query)) -- :: Maybe Int
+                , HasuraClient.offset = Just (fromIntegral (offset query)) -- :: Maybe Int
+                }
+          res <- liftIO $ HasuraClient.runQuery engineUrl hasuraQuery
+          pure (Vector.fromList (map (fmap toPSValue) res))
+      }
+  where
+    columnType :: ScalarType.Type -> P.SourceType
+    columnType ty = P.TypeApp P.nullSourceAnn (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Column") (P.ModuleName "Supercharger"))) (toPSType ty)
+    
+    toPSType :: ScalarType.Type -> P.SourceType
+    toPSType ScalarType.StringTy = P.tyString
+    toPSType ScalarType.NumberTy = P.tyNumber
+    toPSType ScalarType.BoolTy = P.tyBoolean
+    -- TODO: handle nullable types
+    
+    toPSValue :: Yaml.Value -> Evaluate.Value ()
+    toPSValue (Yaml.String s) = Evaluate.String s
+    toPSValue (Yaml.Number d) = Evaluate.Number (realToFrac d)
+    toPSValue (Yaml.Bool b) = Evaluate.Bool b
+    toPSValue _ = error "unexpected value in gql response"
+    
+    cols = P.TypeApp P.nullSourceAnn P.tyRecord colsRow
+    colsRow = P.rowFromList 
+      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (columnType ty) | Config.ColumnImport col ty <- columns]
+      , P.srcREmpty
+      )
+    
+    args = P.TypeApp P.nullSourceAnn P.tyRecord argsRow
+    argsRow = P.rowFromList 
+      ( [ P.srcRowListItem (Label.Label (PSString.mkString "limit")) P.tyInt
+        , P.srcRowListItem (Label.Label (PSString.mkString "offset")) P.tyInt
+        , P.srcRowListItem (Label.Label (PSString.mkString "where_"))
+            (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Predicate") (P.ModuleName "Supercharger")))
+        ]
+      , P.srcREmpty
+      )
+      -- TODO: add Maybe types
+    
+    result = P.TypeApp P.nullSourceAnn P.tyRecord resultRow
+    resultRow = P.rowFromList 
+      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (toPSType ty) | Config.ColumnImport col ty <- columns]
+      , P.srcREmpty
+      )
 
 main :: IO ()
 main = do
