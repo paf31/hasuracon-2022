@@ -25,6 +25,7 @@ superchargerModule tables = Text.unlines
   , "foreign import data Column :: Type -> Type"
   , ""
   , "foreign import data Predicate :: Type"
+  , "foreign import data Order :: Type"
   , ""
   , "foreign import eq :: forall a. Column a -> a -> Predicate"
   , "foreign import neq :: forall a. Column a -> a -> Predicate"
@@ -38,6 +39,9 @@ superchargerModule tables = Text.unlines
   , "foreign import and :: Array Predicate -> Predicate"
   , "foreign import or :: Array Predicate -> Predicate"
   , "foreign import not :: Predicate -> Predicate"
+  , ""
+  , "foreign import asc :: forall a. Column a -> Order"
+  , "foreign import desc :: forall a. Column a -> Order"
   , ""
   , "binaryAnd :: Predicate -> Predicate -> Predicate"
   , "binaryAnd x y = and [x, y]"
@@ -175,6 +179,16 @@ install tables = do
         (P.ModuleName "Supercharger") "not" 
         \p -> do
           pure (Evaluate.ForeignType (HasuraClient.Not (Evaluate.getForeignType p)))
+          
+    , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType (HasuraClient.Column, HasuraClient.OrderDirection)))
+        (P.ModuleName "Supercharger") "asc" 
+        \c -> do
+          pure (Evaluate.ForeignType (HasuraClient.Column c, HasuraClient.Asc))
+          
+    , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType (HasuraClient.Column, HasuraClient.OrderDirection)))
+        (P.ModuleName "Supercharger") "desc" 
+        \c -> do
+          pure (Evaluate.ForeignType (HasuraClient.Column c, HasuraClient.Desc))
     ]
     
   build $ superchargerModule tables

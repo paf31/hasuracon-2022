@@ -4,7 +4,6 @@ module Server
 
 import Config qualified
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (traverse_)
 import Data.Proxy
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -15,11 +14,12 @@ import Data.Text.IO qualified as Text
 import Data.Yaml qualified as Yaml
 import Dovetail
 import Dovetail.Evaluate qualified as Evaluate
-import Dovetail.Prelude (stdlib)
+import Dovetail.Core qualified as Core
+import FFI.HTTP qualified as HTTP
+import FFI.HGE qualified as HGE
 import Hasura.Backends.DataWrapper.API qualified as API
 import Hasura.Backends.DataWrapper.API.V0.Column qualified as Column
 import Hasura.Backends.DataWrapper.API.V0.Table qualified as Table
-import HTTP qualified
 import HasuraClient qualified
 import Language.PureScript.CoreFn qualified as CoreFn
 import Network.Wai
@@ -31,21 +31,7 @@ import Servant.API
 import System.Posix.Signals qualified as Signal
 import Servant.Server (Handler, serve)
 import System.Environment (getArgs)
--- import System.Exit (die)
 import Translate qualified
-
-
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
-import GHC.Generics (Generic)
-import Language.PureScript qualified as P
-import Language.PureScript.Names qualified as Names
-import Language.PureScript.PSString qualified as PSString
-import Language.PureScript.Label qualified as Label
-import Dovetail.FFI.Internal qualified as FFI
-import Dovetail.FFI.Internal qualified as FFI
-import Dovetail.FFI.Internal qualified as FFI
-import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
 
 api :: Proxy API.Api
 api = Proxy
@@ -58,12 +44,11 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
     toTableInfo (name, tbl) = Table.TableInfo
       { dtiName        = Table.TableName name
       , dtiColumns     = [ Column.ColumnInfo 
-                           { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport)) -- (maybe (error "bad field name") id (PSString.decodeString fieldName))
-                           , dciType = Config.dataType col --fromPSType fieldType
+                           { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport))
+                           , dciType = Config.dataType col
                            , dciNullable = False
                            , dciDescription = Nothing
                            }
-                         -- | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
                          | col <- Config.columns tbl
                          ]
       , dtiPrimaryKey  = Nothing
@@ -98,101 +83,17 @@ loadConfig
   :: Config.Config
   -> Eval () [ForeignImport ()]
   -> IO (Either (InterpretError ()) (HashMap Text Program.TableConfig))
-loadConfig config httpImports = do
+loadConfig config imports = do
   moduleText <- Text.readFile (Config.source config)
   runInterpret () do
-    traverse_ ffi stdlib
+    Core.buildModules Core.minimal
     
-    ffiDecls <- liftEval httpImports
+    ffiDecls <- liftEval imports
     ffi (FFI (ModuleName "Imports") ffiDecls)
-    
-    ffi (FFI (ModuleName "Client") (map (tableToImport (Config.engineUrl config)) (HashMap.toList (Config.tables config))))
     
     _ <- Program.install (Config.tables config)
     CoreFn.Module{ CoreFn.moduleName } <- build moduleText
     Program.evalConfig config moduleName
-
--- newtype WrappedMaybe a = WrappedMaybe (Maybe a)
---   deriving stock (Show, Eq, Generic)
--- 
--- instance ToValue ctx a => ToValue ctx (WrappedMaybe a) where
---   toValue (WrappedMaybe Nothing) = 
---     Evaluate.Constructor (Names.ProperName "Nothing") []
---   toValue (WrappedMaybe (Just a)) = 
---     Evaluate.Constructor (Names.ProperName "Just") [toValue a]
--- 
---   fromValue (Evaluate.Constructor (Names.ProperName "Nothing") []) =
---     pure (WrappedMaybe Nothing)
---   fromValue (Evaluate.Constructor (Names.ProperName "Just") [val]) =
---     WrappedMaybe . Just <$> fromValue val
---   fromValue other =
---     Evaluate.throwErrorWithContext (Evaluate.TypeMismatch "Maybe" other)
-
-data FFIQuery = FFIQuery
-  { where_ :: Evaluate.ForeignType HasuraClient.Predicate
-  , limit :: Integer
-  , offset :: Integer
-  } 
-  deriving stock (Generic)
-  deriving anyclass (Evaluate.ToValue ctx)
-
-tableToImport :: Text -> (Text, Config.TableImport) -> ForeignImport ()
-tableToImport engineUrl (name, Config.TableImport columns) = 
-    ForeignImport
-      { fv_name = P.Ident name
-      , fv_type = (cols `FFI.function` args) `FFI.function` FFI.array result
-      , fv_value = toValue @() @((HashMap Text Text -> Eval () FFIQuery) -> Eval () (Vector (HashMap Text (Evaluate.Value ())))) \f -> do
-          let columnsRecord = HashMap.fromList [ (col, col) | Config.ColumnImport col _ <- columns ]
-          query <- f columnsRecord
-          let hasuraQuery = HasuraClient.Query
-                { HasuraClient.table = name -- :: Text
-                , HasuraClient.fields = [ HasuraClient.Column col | Config.ColumnImport col _ <- columns] -- :: [Column]
-                , HasuraClient.where_ = Just (Evaluate.getForeignType (where_ query)) -- :: Maybe Predicate
-                , HasuraClient.orderBy = Nothing -- :: Maybe (NonEmpty (Column, OrderDirection))
-                , HasuraClient.limit = Just (fromIntegral (limit query)) -- :: Maybe Int
-                , HasuraClient.offset = Just (fromIntegral (offset query)) -- :: Maybe Int
-                }
-          res <- liftIO $ HasuraClient.runQuery engineUrl hasuraQuery
-          pure (Vector.fromList (map (fmap toPSValue) res))
-      }
-  where
-    columnType :: ScalarType.Type -> P.SourceType
-    columnType ty = P.TypeApp P.nullSourceAnn (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Column") (P.ModuleName "Supercharger"))) (toPSType ty)
-    
-    toPSType :: ScalarType.Type -> P.SourceType
-    toPSType ScalarType.StringTy = P.tyString
-    toPSType ScalarType.NumberTy = P.tyNumber
-    toPSType ScalarType.BoolTy = P.tyBoolean
-    -- TODO: handle nullable types
-    
-    toPSValue :: Yaml.Value -> Evaluate.Value ()
-    toPSValue (Yaml.String s) = Evaluate.String s
-    toPSValue (Yaml.Number d) = Evaluate.Number (realToFrac d)
-    toPSValue (Yaml.Bool b) = Evaluate.Bool b
-    toPSValue _ = error "unexpected value in gql response"
-    
-    cols = P.TypeApp P.nullSourceAnn P.tyRecord colsRow
-    colsRow = P.rowFromList 
-      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (columnType ty) | Config.ColumnImport col ty <- columns]
-      , P.srcREmpty
-      )
-    
-    args = P.TypeApp P.nullSourceAnn P.tyRecord argsRow
-    argsRow = P.rowFromList 
-      ( [ P.srcRowListItem (Label.Label (PSString.mkString "limit")) P.tyInt
-        , P.srcRowListItem (Label.Label (PSString.mkString "offset")) P.tyInt
-        , P.srcRowListItem (Label.Label (PSString.mkString "where_"))
-            (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Predicate") (P.ModuleName "Supercharger")))
-        ]
-      , P.srcREmpty
-      )
-      -- TODO: add Maybe types
-    
-    result = P.TypeApp P.nullSourceAnn P.tyRecord resultRow
-    resultRow = P.rowFromList 
-      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (toPSType ty) | Config.ColumnImport col ty <- columns]
-      , P.srcREmpty
-      )
 
 main :: IO ()
 main = do
@@ -200,15 +101,17 @@ main = do
   config@Config.Config{..} <- Yaml.decodeFileThrow configFile
   
   httpImports <- HTTP.importAll imports
+  let hgeImports = HGE.importAll config
+  let allImports = (<> hgeImports) <$> httpImports
 
-  result <- loadConfig config httpImports
+  result <- loadConfig config allImports
     
   case result of
     Right tableConfigs -> do
       tableConfigRef <- liftIO $ IORef.newIORef tableConfigs
       
       let reloadConfig = do
-            newResult <- loadConfig config httpImports
+            newResult <- loadConfig config allImports
             case newResult of
               Right newTableConfigs -> do
                 IORef.writeIORef tableConfigRef newTableConfigs
@@ -217,12 +120,10 @@ main = do
                 putStrLn $ renderInterpretError defaultTerminalRenderValueOptions err
           
       _ <- liftIO $ Signal.installHandler Signal.sigHUP (Signal.Catch reloadConfig) Nothing
-          
-      -- TODO: add FFI declaration for each table that we can query, including
-      -- where clauses and pk lookups
+      
       let server = mkServer tableConfigRef config
             
-          app :: Application
+      let app :: Application
           app = serve api server
         
       liftIO do
@@ -233,3 +134,4 @@ main = do
           
     Left err -> 
       putStrLn $ renderInterpretError defaultTerminalRenderValueOptions err
+      

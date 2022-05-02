@@ -33,7 +33,7 @@ tables:
       - name: composer
         dataType: string
       - name: genre_id
-        dataType: string
+        dataType: number
       - name: id
         dataType: number
       - name: media_type_id
@@ -41,6 +41,6 @@ tables:
       - name: milliseconds
         dataType: number
       - name: name
-        dataType: number
+        dataType: string
       - name: unit_price
         dataType: number 

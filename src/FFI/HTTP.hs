@@ -1,4 +1,4 @@
-module HTTP where
+module FFI.HTTP where
 
 import Burrito qualified
 import Burrito.Internal.Render qualified 
