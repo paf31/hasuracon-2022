@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f28736c416e7c53e391aae3024dd4282002b3fe5236d89ab94781b4c8659cfbe
+-- hash: 9b46d7dfeea5886b2bce6659e1dff92e18bc110b7e10cb846cc01fccc71d45ea
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -18,8 +18,7 @@ license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
-    README.md
-    ChangeLog.md
+    purs/Supercharger.purs
 
 source-repository head
   type: git
@@ -45,6 +44,7 @@ library
       DeriveGeneric
       DerivingStrategies
       DuplicateRecordFields
+      FlexibleContexts
       FlexibleInstances
       ImportQualifiedPost
       KindSignatures
@@ -73,9 +73,11 @@ library
     , mtl
     , purescript
     , purescript-cst
+    , semialign
     , servant
     , servant-server
     , text
+    , these
     , unix
     , unordered-containers
     , vector

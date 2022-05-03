@@ -2,10 +2,12 @@ module FFI.HGE where
 
 import Config qualified
 import Control.Monad.IO.Class (liftIO)
+import Data.Align (alignWith)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List.NonEmpty (nonEmpty)
 import Data.Text (Text)
+import Data.These (These(..))
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Data.Yaml qualified as Yaml
@@ -54,39 +56,68 @@ tableToImport engineUrl (name, Config.TableImport columns) =
       { fv_name = P.Ident name
       , fv_type = (cols `FFI.function` args) `FFI.function` FFI.array result
       , fv_value = toValue @() @((HashMap Text Text -> Eval () FFIQuery) -> Eval () (Vector (HashMap Text (Evaluate.Value ())))) \f -> do
-          let columnsRecord = HashMap.fromList [ (col, col) | Config.ColumnImport col _ <- columns ]
+          let columnsRecord = HashMap.fromList [ (col, col) | Config.ColumnImport col _ _ <- columns ]
+              columnsByName = HashMap.fromList [ (col, c) | c@(Config.ColumnImport col _ _) <- columns ]
           query <- f columnsRecord
           let hasuraQuery = HasuraClient.Query
                 { HasuraClient.table = name
                 -- TODO: try to determine the minimum set of fields required
-                , HasuraClient.fields = [ HasuraClient.Column col | Config.ColumnImport col _ <- columns]
+                , HasuraClient.fields = [ HasuraClient.Column col | Config.ColumnImport col _ _ <- columns]
                 , HasuraClient.where_ = Evaluate.getForeignType <$> getWrappedMaybe (where_ query)
                 , HasuraClient.orderBy = nonEmpty [ Evaluate.getForeignType o | o <- Vector.toList (orderBy query) ]
                 , HasuraClient.limit = fromIntegral <$> getWrappedMaybe (limit query)
                 , HasuraClient.offset = fromIntegral <$> getWrappedMaybe (offset query)
                 }
           res <- liftIO $ HasuraClient.runQuery engineUrl hasuraQuery
-          Vector.fromList <$> traverse (traverse toPSValue) res
+          Vector.fromList <$> traverse (\o -> sequence (alignWith toPSValue columnsByName o)) res
       }
   where
-    columnType :: ScalarType.Type -> P.SourceType
-    columnType ty = P.TypeApp P.nullSourceAnn (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Column") (P.ModuleName "Supercharger"))) (toPSType ty)
+    columnType :: Config.ColumnImport -> P.SourceType
+    columnType c = 
+      P.TypeApp P.nullSourceAnn 
+        (P.TypeConstructor P.nullSourceAnn 
+          (P.mkQualified (P.ProperName "Column") (P.ModuleName "Supercharger"))) 
+        (toPSType c)
     
-    toPSType :: ScalarType.Type -> P.SourceType
-    toPSType ScalarType.StringTy = P.tyString
-    toPSType ScalarType.NumberTy = P.tyNumber
-    toPSType ScalarType.BoolTy = P.tyBoolean
+    toPSType :: Config.ColumnImport -> P.SourceType
+    toPSType (Config.ColumnImport _ ty nullable) = 
+      let baseType = 
+            case ty of
+              ScalarType.StringTy -> P.tyString
+              ScalarType.NumberTy -> P.tyNumber
+              ScalarType.BoolTy   -> P.tyBoolean
+       in if nullable
+            then maybeTy baseType
+            else baseType
     
-    -- TODO: handle nullable types, and check the values against the expected types/nullability
-    toPSValue :: Yaml.Value -> Eval () (Evaluate.Value ())
-    toPSValue (Yaml.String s) = pure $ Evaluate.String s
-    toPSValue (Yaml.Number d) = pure $ Evaluate.Number (realToFrac d)
-    toPSValue (Yaml.Bool b)   = pure $ Evaluate.Bool b
-    toPSValue _               = Evaluate.throwErrorWithContext (Evaluate.OtherError "received unexpected value in gql response")
+    toPSValue :: These Config.ColumnImport Yaml.Value -> Eval () (Evaluate.Value ())
+    toPSValue (These (Config.ColumnImport _ _ True) Yaml.Null) = 
+      pure (Evaluate.Constructor (Names.ProperName "Nothing") [])
+    toPSValue (These (Config.ColumnImport _ ty True) val) = 
+      (Evaluate.Constructor (Names.ProperName "Just") . (:[])) <$> toNonNullPSValue ty val
+    toPSValue (These (Config.ColumnImport _ ty False) val) =
+      toNonNullPSValue ty val
+    toPSValue (This (Config.ColumnImport columnName _ _)) =
+      Evaluate.throwErrorWithContext (Evaluate.OtherError ("error in gql response: missing field " <> columnName))
+    toPSValue That{} =
+      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: unexpected fields")
+      
+    toNonNullPSValue ScalarType.StringTy (Yaml.String s) = 
+      pure $ Evaluate.String s
+    toNonNullPSValue ScalarType.StringTy _ =
+      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected string")
+    toNonNullPSValue ScalarType.NumberTy (Yaml.Number d) = 
+      pure $ Evaluate.Number (realToFrac d)
+    toNonNullPSValue ScalarType.NumberTy _ =
+      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected number")
+    toNonNullPSValue ScalarType.BoolTy (Yaml.Bool b) = 
+      pure $ Evaluate.Bool b
+    toNonNullPSValue ScalarType.BoolTy _ =
+      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected boolean")
     
     cols = P.TypeApp P.nullSourceAnn P.tyRecord colsRow
     colsRow = P.rowFromList 
-      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (columnType ty) | Config.ColumnImport col ty <- columns]
+      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (columnType c) | c@(Config.ColumnImport col _ _) <- columns]
       , P.srcREmpty
       )
     
@@ -102,13 +133,21 @@ tableToImport engineUrl (name, Config.TableImport columns) =
       , P.srcREmpty
       )
     
-    predicateTy = P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Predicate") (P.ModuleName "Supercharger"))
-    orderTy = P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Order") (P.ModuleName "Supercharger"))
+    predicateTy = 
+      P.TypeConstructor P.nullSourceAnn
+        (P.mkQualified (P.ProperName "Predicate") (P.ModuleName "Supercharger"))
+        
+    orderTy = 
+      P.TypeConstructor P.nullSourceAnn
+        (P.mkQualified (P.ProperName "Order") (P.ModuleName "Supercharger"))
     
-    maybeTy = P.TypeApp P.nullSourceAnn (P.TypeConstructor P.nullSourceAnn (P.mkQualified (P.ProperName "Maybe") (P.ModuleName "Data.Maybe")))
+    maybeTy = 
+      P.TypeApp P.nullSourceAnn 
+        (P.TypeConstructor P.nullSourceAnn 
+          (P.mkQualified (P.ProperName "Maybe") (P.ModuleName "Data.Maybe")))
     
     result = P.TypeApp P.nullSourceAnn P.tyRecord resultRow
     resultRow = P.rowFromList 
-      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (toPSType ty) | Config.ColumnImport col ty <- columns]
+      ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (toPSType c) | c@(Config.ColumnImport col _ _) <- columns]
       , P.srcREmpty
       )

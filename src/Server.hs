@@ -44,12 +44,12 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
     toTableInfo (name, tbl) = Table.TableInfo
       { dtiName        = Table.TableName name
       , dtiColumns     = [ Column.ColumnInfo 
-                           { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport))
-                           , dciType = Config.dataType col
-                           , dciNullable = False
+                           { dciName = Column.ColumnName columnName
+                           , dciType = dataType
+                           , dciNullable = nullable
                            , dciDescription = Nothing
                            }
-                         | col <- Config.columns tbl
+                         | Config.ColumnImport columnName dataType nullable <- Config.columns tbl
                          ]
       , dtiPrimaryKey  = Nothing
       , dtiDescription = Nothing

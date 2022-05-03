@@ -1,6 +1,6 @@
 module Supercharger 
   ( Config, Column, Predicate, Order
-  , _eq, _neq, _in, _is_null, _is_not_null, _lt, _lte, _gt, _gte, _and, _or, _not
+  , _eq, _neq, _in, isNull, isNotNull, _lt, _lte, _gt, _gte, _and, _or, not
   , binaryAnd, binaryOr
   , (==), (!=), (<), (<=), (>), (>=), (&&), (||)
   , asc, desc
@@ -10,6 +10,8 @@ module Supercharger
 import Prelude (($), show) as Reexports
 import Data.Maybe (Maybe(..)) as Reexports
 
+import Data.Maybe (Maybe)
+
 foreign import data Column :: Type -> Type
 
 foreign import data Predicate :: Type
@@ -18,15 +20,15 @@ foreign import data Order :: Type
 foreign import _eq :: forall a. Column a -> a -> Predicate
 foreign import _neq :: forall a. Column a -> a -> Predicate
 foreign import _in :: forall a. Column a -> Array a -> Predicate
-foreign import _is_null :: forall a. Column a -> Predicate
-foreign import _is_not_null :: forall a. Column a -> Predicate
+foreign import isNull :: forall a. Column (Maybe a) -> Predicate
+foreign import isNotNull :: forall a. Column (Maybe a) -> Predicate
 foreign import _lt :: forall a. Column a -> a -> Predicate
 foreign import _lte :: forall a. Column a -> a -> Predicate
 foreign import _gt :: forall a. Column a -> a -> Predicate
 foreign import _gte :: forall a. Column a -> a -> Predicate
 foreign import _and :: Array Predicate -> Predicate
 foreign import _or :: Array Predicate -> Predicate
-foreign import _not :: Predicate -> Predicate
+foreign import not :: Predicate -> Predicate
 
 binaryAnd :: Predicate -> Predicate -> Predicate
 binaryAnd x y = _and [x, y]

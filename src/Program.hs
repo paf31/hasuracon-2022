@@ -37,12 +37,18 @@ makeConfigType tables =
   where
     makeTableConfigType :: Config.TableImport -> Text
     makeTableConfigType (Config.TableImport columns) =
-      "{ " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType ty | Config.ColumnImport name ty <- columns ] <> " } -> { predicate :: Predicate }"
+      "{ " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType c | c@(Config.ColumnImport name _ _) <- columns ] <> " } -> { predicate :: Predicate }"
       
-    makeColumnType :: ScalarType.Type -> Text
-    makeColumnType ScalarType.StringTy = "String"
-    makeColumnType ScalarType.NumberTy = "Number"
-    makeColumnType ScalarType.BoolTy = "Boolean"
+    makeColumnType :: Config.ColumnImport -> Text
+    makeColumnType (Config.ColumnImport _ ty nullable) = 
+      let baseType = 
+            case ty of
+              ScalarType.StringTy -> "String"
+              ScalarType.NumberTy -> "Number"
+              ScalarType.BoolTy   -> "Boolean"
+       in if nullable
+            then "(Maybe " <> baseType <> ")"
+            else baseType
 
 data TableConfig = TableConfig
   { predicate :: Evaluate.ForeignType HasuraClient.Predicate
@@ -91,17 +97,17 @@ install tables = do
       toScalar _ = error "cannot convert value"
   loadEnv $ fold
     [ Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "eq" 
+        (P.ModuleName "Supercharger") "_eq" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Eq (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "neq" 
+        (P.ModuleName "Supercharger") "_neq" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Neq (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Vector (Value ()) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "in_" 
+        (P.ModuleName "Supercharger") "_in" 
         \col vals -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.In (HasuraClient.Column col) (map toScalar (Vector.toList vals)))))
       
@@ -116,32 +122,32 @@ install tables = do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.IsNotNull (HasuraClient.Column col))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "lt" 
+        (P.ModuleName "Supercharger") "_lt" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lt (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "lte" 
+        (P.ModuleName "Supercharger") "_lte" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lte (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "gt" 
+        (P.ModuleName "Supercharger") "_gt" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gt (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "gte" 
+        (P.ModuleName "Supercharger") "_gte" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gte (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "and" 
+        (P.ModuleName "Supercharger") "_and" 
         \xs -> do
           pure (Evaluate.ForeignType (HasuraClient.And (map Evaluate.getForeignType (Vector.toList xs))))
       
     , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "or" 
+        (P.ModuleName "Supercharger") "_or" 
         \xs -> do
           pure (Evaluate.ForeignType (HasuraClient.Or (map Evaluate.getForeignType (Vector.toList xs))))
       
