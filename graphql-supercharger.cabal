@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 81c3cf1f1b74b3babae4b0311114b55cb411f8c34fdb01be9c6dc5c59fd0e097
+-- hash: 9b46d7dfeea5886b2bce6659e1dff92e18bc110b7e10cb846cc01fccc71d45ea
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -18,8 +18,7 @@ license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
-    README.md
-    ChangeLog.md
+    purs/Supercharger.purs
 
 source-repository head
   type: git
@@ -28,8 +27,9 @@ source-repository head
 library
   exposed-modules:
       Config
+      FFI.HGE
+      FFI.HTTP
       HasuraClient
-      HTTP
       Program
       Server
       Translate
@@ -44,6 +44,7 @@ library
       DeriveGeneric
       DerivingStrategies
       DuplicateRecordFields
+      FlexibleContexts
       FlexibleInstances
       ImportQualifiedPost
       KindSignatures
@@ -65,15 +66,18 @@ library
     , dovetail
     , dovetail-aeson
     , dovetail-core
+    , file-embed
     , gdw-api
     , lens
     , lens-aeson
     , mtl
     , purescript
     , purescript-cst
+    , semialign
     , servant
     , servant-server
     , text
+    , these
     , unix
     , unordered-containers
     , vector

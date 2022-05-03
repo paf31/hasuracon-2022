@@ -4,7 +4,6 @@ module Server
 
 import Config qualified
 import Control.Monad.IO.Class (liftIO)
-import Data.Foldable (traverse_)
 import Data.Proxy
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
@@ -15,11 +14,12 @@ import Data.Text.IO qualified as Text
 import Data.Yaml qualified as Yaml
 import Dovetail
 import Dovetail.Evaluate qualified as Evaluate
-import Dovetail.Prelude (stdlib)
+import Dovetail.Core qualified as Core
+import FFI.HTTP qualified as HTTP
+import FFI.HGE qualified as HGE
 import Hasura.Backends.DataWrapper.API qualified as API
 import Hasura.Backends.DataWrapper.API.V0.Column qualified as Column
 import Hasura.Backends.DataWrapper.API.V0.Table qualified as Table
-import HTTP qualified
 import HasuraClient qualified
 import Language.PureScript.CoreFn qualified as CoreFn
 import Network.Wai
@@ -31,7 +31,6 @@ import Servant.API
 import System.Posix.Signals qualified as Signal
 import Servant.Server (Handler, serve)
 import System.Environment (getArgs)
--- import System.Exit (die)
 import Translate qualified
 
 api :: Proxy API.Api
@@ -45,13 +44,12 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
     toTableInfo (name, tbl) = Table.TableInfo
       { dtiName        = Table.TableName name
       , dtiColumns     = [ Column.ColumnInfo 
-                           { dciName = Column.ColumnName (Config.name (col :: Config.ColumnImport)) -- (maybe (error "bad field name") id (PSString.decodeString fieldName))
-                           , dciType = Config.dataType col --fromPSType fieldType
-                           , dciNullable = False
+                           { dciName = Column.ColumnName columnName
+                           , dciType = dataType
+                           , dciNullable = nullable
                            , dciDescription = Nothing
                            }
-                         -- | P.RowListItem _ (Label.Label fieldName) fieldType <- fields 
-                         | col <- Config.columns tbl
+                         | Config.ColumnImport columnName dataType nullable <- Config.columns tbl
                          ]
       , dtiPrimaryKey  = Nothing
       , dtiDescription = Nothing
@@ -85,12 +83,12 @@ loadConfig
   :: Config.Config
   -> Eval () [ForeignImport ()]
   -> IO (Either (InterpretError ()) (HashMap Text Program.TableConfig))
-loadConfig config httpImports = do
+loadConfig config imports = do
   moduleText <- Text.readFile (Config.source config)
   runInterpret () do
-    traverse_ ffi stdlib
+    Core.buildModules Core.minimal
     
-    ffiDecls <- liftEval httpImports
+    ffiDecls <- liftEval imports
     ffi (FFI (ModuleName "Imports") ffiDecls)
     
     _ <- Program.install (Config.tables config)
@@ -103,15 +101,17 @@ main = do
   config@Config.Config{..} <- Yaml.decodeFileThrow configFile
   
   httpImports <- HTTP.importAll imports
+  let hgeImports = HGE.importAll config
+  let allImports = (<> hgeImports) <$> httpImports
 
-  result <- loadConfig config httpImports
+  result <- loadConfig config allImports
     
   case result of
     Right tableConfigs -> do
       tableConfigRef <- liftIO $ IORef.newIORef tableConfigs
       
       let reloadConfig = do
-            newResult <- loadConfig config httpImports
+            newResult <- loadConfig config allImports
             case newResult of
               Right newTableConfigs -> do
                 IORef.writeIORef tableConfigRef newTableConfigs
@@ -120,12 +120,10 @@ main = do
                 putStrLn $ renderInterpretError defaultTerminalRenderValueOptions err
           
       _ <- liftIO $ Signal.installHandler Signal.sigHUP (Signal.Catch reloadConfig) Nothing
-          
-      -- TODO: add FFI declaration for each table that we can query, including
-      -- where clauses and pk lookups
+      
       let server = mkServer tableConfigRef config
             
-          app :: Application
+      let app :: Application
           app = serve api server
         
       liftIO do
@@ -136,3 +134,4 @@ main = do
           
     Left err -> 
       putStrLn $ renderInterpretError defaultTerminalRenderValueOptions err
+      

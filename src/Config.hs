@@ -1,5 +1,6 @@
 module Config where
 
+import Data.Aeson ((.:), (.:?), (.!=))
 import Data.Aeson qualified as Aeson
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
@@ -12,7 +13,13 @@ data Config = Config
   , engineUrl :: Text
   , tables :: HashMap Text TableImport
   } deriving (Show, Generic)
-    deriving anyclass Aeson.FromJSON
+
+instance Aeson.FromJSON Config where
+  parseJSON = Aeson.withObject "config" \o -> Config
+    <$> o .: "source"
+    <*> o .:? "imports" .!= mempty
+    <*> o .: "engineUrl"
+    <*> o .: "tables"
 
 data URLImport = URLImport
   { uri :: String
@@ -28,5 +35,11 @@ data TableImport = TableImport
 data ColumnImport = ColumnImport
   { name :: Text
   , dataType :: ScalarType.Type
+  , nullable :: Bool
   } deriving (Show, Generic)
-    deriving anyclass (Aeson.FromJSON)
+
+instance Aeson.FromJSON ColumnImport where
+  parseJSON = Aeson.withObject "column" \o -> ColumnImport
+    <$> o .: "name"
+    <*> o .: "type"
+    <*> o .:? "nullable" .!= False

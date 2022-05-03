@@ -1,7 +1,10 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Program where
 
 import Config qualified
 import Control.Monad.IO.Class (liftIO)
+import Data.FileEmbed (embedStringFile)
 import Data.Foldable (fold)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -18,41 +21,12 @@ import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
 import Language.PureScript qualified as P
 import System.Exit (die)
 
+superchargerStaticModule :: Text
+superchargerStaticModule = $(embedStringFile "purs/Supercharger.purs")
+
 superchargerModule :: HashMap Text Config.TableImport -> Text
 superchargerModule tables = Text.unlines
-  [ "module Supercharger where"
-  , ""
-  , "foreign import data Column :: Type -> Type"
-  , ""
-  , "foreign import data Predicate :: Type"
-  , ""
-  , "foreign import eq :: forall a. Column a -> a -> Predicate"
-  , "foreign import neq :: forall a. Column a -> a -> Predicate"
-  , "foreign import in_ :: forall a. Column a -> Array a -> Predicate"
-  , "foreign import isNull :: forall a. Column a -> Predicate"
-  , "foreign import isNotNull :: forall a. Column a -> Predicate"
-  , "foreign import lt :: forall a. Column a -> a -> Predicate"
-  , "foreign import lte :: forall a. Column a -> a -> Predicate"
-  , "foreign import gt :: forall a. Column a -> a -> Predicate"
-  , "foreign import gte :: forall a. Column a -> a -> Predicate"
-  , "foreign import and :: Array Predicate -> Predicate"
-  , "foreign import or :: Array Predicate -> Predicate"
-  , "foreign import not :: Predicate -> Predicate"
-  , ""
-  , "binaryAnd :: Predicate -> Predicate -> Predicate"
-  , "binaryAnd x y = and [x, y]"
-  , ""
-  , "binaryOr :: Predicate -> Predicate -> Predicate"
-  , "binaryOr x y = or [x, y]"
-  , ""
-  , "infix 4 eq as =="
-  , "infix 4 neq as !="
-  , "infixl 4 lt as <"
-  , "infixl 4 lte as <="
-  , "infixl 4 gt as >"
-  , "infixl 4 gte as >="
-  , "infixr 3 binaryAnd as &&"
-  , "infixr 2 binaryOr as ||"
+  [ superchargerStaticModule
   , ""
   , "type Config = " <> makeConfigType tables
   ]
@@ -63,12 +37,18 @@ makeConfigType tables =
   where
     makeTableConfigType :: Config.TableImport -> Text
     makeTableConfigType (Config.TableImport columns) =
-      "{ " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType ty | Config.ColumnImport name ty <- columns ] <> " } -> { predicate :: Predicate }"
+      "{ " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType c | c@(Config.ColumnImport name _ _) <- columns ] <> " } -> { predicate :: Predicate }"
       
-    makeColumnType :: ScalarType.Type -> Text
-    makeColumnType ScalarType.StringTy = "String"
-    makeColumnType ScalarType.NumberTy = "Number"
-    makeColumnType ScalarType.BoolTy = "Boolean"
+    makeColumnType :: Config.ColumnImport -> Text
+    makeColumnType (Config.ColumnImport _ ty nullable) = 
+      let baseType = 
+            case ty of
+              ScalarType.StringTy -> "String"
+              ScalarType.NumberTy -> "Number"
+              ScalarType.BoolTy   -> "Boolean"
+       in if nullable
+            then "(Maybe " <> baseType <> ")"
+            else baseType
 
 data TableConfig = TableConfig
   { predicate :: Evaluate.ForeignType HasuraClient.Predicate
@@ -117,17 +97,17 @@ install tables = do
       toScalar _ = error "cannot convert value"
   loadEnv $ fold
     [ Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "eq" 
+        (P.ModuleName "Supercharger") "_eq" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Eq (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "neq" 
+        (P.ModuleName "Supercharger") "_neq" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Neq (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Vector (Value ()) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "in_" 
+        (P.ModuleName "Supercharger") "_in" 
         \col vals -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.In (HasuraClient.Column col) (map toScalar (Vector.toList vals)))))
       
@@ -142,32 +122,32 @@ install tables = do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.IsNotNull (HasuraClient.Column col))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "lt" 
+        (P.ModuleName "Supercharger") "_lt" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lt (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "lte" 
+        (P.ModuleName "Supercharger") "_lte" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Lte (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "gt" 
+        (P.ModuleName "Supercharger") "_gt" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gt (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Text -> Value () -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "gte" 
+        (P.ModuleName "Supercharger") "_gte" 
         \col val -> do
           pure (Evaluate.ForeignType (HasuraClient.Atom (HasuraClient.Gte (HasuraClient.Column col) (toScalar val))))
       
     , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "and" 
+        (P.ModuleName "Supercharger") "_and" 
         \xs -> do
           pure (Evaluate.ForeignType (HasuraClient.And (map Evaluate.getForeignType (Vector.toList xs))))
       
     , Evaluate.builtIn @() @(Vector (Evaluate.ForeignType HasuraClient.Predicate) -> Eval () (Evaluate.ForeignType HasuraClient.Predicate))
-        (P.ModuleName "Supercharger") "or" 
+        (P.ModuleName "Supercharger") "_or" 
         \xs -> do
           pure (Evaluate.ForeignType (HasuraClient.Or (map Evaluate.getForeignType (Vector.toList xs))))
       
@@ -175,6 +155,16 @@ install tables = do
         (P.ModuleName "Supercharger") "not" 
         \p -> do
           pure (Evaluate.ForeignType (HasuraClient.Not (Evaluate.getForeignType p)))
+          
+    , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType (HasuraClient.Column, HasuraClient.OrderDirection)))
+        (P.ModuleName "Supercharger") "asc" 
+        \c -> do
+          pure (Evaluate.ForeignType (HasuraClient.Column c, HasuraClient.Asc))
+          
+    , Evaluate.builtIn @() @(Text -> Eval () (Evaluate.ForeignType (HasuraClient.Column, HasuraClient.OrderDirection)))
+        (P.ModuleName "Supercharger") "desc" 
+        \c -> do
+          pure (Evaluate.ForeignType (HasuraClient.Column c, HasuraClient.Desc))
     ]
     
   build $ superchargerModule tables

@@ -2,9 +2,6 @@ module Translate where
   
 import Autodocodec.Extended qualified as Codec
 import Data.HashMap.Strict qualified as HashMap
--- import Dovetail
--- import Dovetail.Aeson qualified as JSON 
--- import Dovetail.Evaluate qualified as Evaluate
 import Hasura.Backends.DataWrapper.API qualified as API
 import Hasura.Backends.DataWrapper.API.V0.Column qualified as Column
 import Hasura.Backends.DataWrapper.API.V0.Expression (Expression, Operator)
@@ -14,8 +11,6 @@ import Hasura.Backends.DataWrapper.API.V0.Query qualified as Query
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Value qualified as Scalar
 import Hasura.Backends.DataWrapper.API.V0.Table qualified as Table
 import HasuraClient qualified
--- import Language.PureScript qualified as P
--- import Language.PureScript.CoreFn qualified as CoreFn
 
 pattern And_, Or_ :: [Expression] -> Expression
 pattern And_ xs = (Expression.And (Codec.ValueWrapper xs))
