@@ -1,7 +1,10 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Program where
 
 import Config qualified
 import Control.Monad.IO.Class (liftIO)
+import Data.FileEmbed (embedStringFile)
 import Data.Foldable (fold)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -18,45 +21,12 @@ import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
 import Language.PureScript qualified as P
 import System.Exit (die)
 
+superchargerStaticModule :: Text
+superchargerStaticModule = $(embedStringFile "purs/Supercharger.purs")
+
 superchargerModule :: HashMap Text Config.TableImport -> Text
 superchargerModule tables = Text.unlines
-  [ "module Supercharger where"
-  , ""
-  , "foreign import data Column :: Type -> Type"
-  , ""
-  , "foreign import data Predicate :: Type"
-  , "foreign import data Order :: Type"
-  , ""
-  , "foreign import eq :: forall a. Column a -> a -> Predicate"
-  , "foreign import neq :: forall a. Column a -> a -> Predicate"
-  , "foreign import in_ :: forall a. Column a -> Array a -> Predicate"
-  , "foreign import isNull :: forall a. Column a -> Predicate"
-  , "foreign import isNotNull :: forall a. Column a -> Predicate"
-  , "foreign import lt :: forall a. Column a -> a -> Predicate"
-  , "foreign import lte :: forall a. Column a -> a -> Predicate"
-  , "foreign import gt :: forall a. Column a -> a -> Predicate"
-  , "foreign import gte :: forall a. Column a -> a -> Predicate"
-  , "foreign import and :: Array Predicate -> Predicate"
-  , "foreign import or :: Array Predicate -> Predicate"
-  , "foreign import not :: Predicate -> Predicate"
-  , ""
-  , "foreign import asc :: forall a. Column a -> Order"
-  , "foreign import desc :: forall a. Column a -> Order"
-  , ""
-  , "binaryAnd :: Predicate -> Predicate -> Predicate"
-  , "binaryAnd x y = and [x, y]"
-  , ""
-  , "binaryOr :: Predicate -> Predicate -> Predicate"
-  , "binaryOr x y = or [x, y]"
-  , ""
-  , "infix 4 eq as =="
-  , "infix 4 neq as !="
-  , "infixl 4 lt as <"
-  , "infixl 4 lte as <="
-  , "infixl 4 gt as >"
-  , "infixl 4 gte as >="
-  , "infixr 3 binaryAnd as &&"
-  , "infixr 2 binaryOr as ||"
+  [ superchargerStaticModule
   , ""
   , "type Config = " <> makeConfigType tables
   ]

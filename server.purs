@@ -3,9 +3,7 @@ module Main where
 import Imports
 import Supercharger
 
-import Prelude
-import Data.Maybe
-import Partial.Unsafe
+import Partial.Unsafe (unsafeCrashWith)
 
 config :: Config -> Config
 config c = c

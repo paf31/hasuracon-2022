@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: eda8c6b0104a703f06ce35f3609f3c0722df1c3410562025e7ef6075d734c41d
+-- hash: f28736c416e7c53e391aae3024dd4282002b3fe5236d89ab94781b4c8659cfbe
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -66,6 +66,7 @@ library
     , dovetail
     , dovetail-aeson
     , dovetail-core
+    , file-embed
     , gdw-api
     , lens
     , lens-aeson

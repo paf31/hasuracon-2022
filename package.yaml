@@ -26,6 +26,8 @@ library:
   source-dirs: src
   ghc-options:
   - -Wall
+  extra-source-files:
+  - purs/Supercharger.purs
   dependencies:
   - aeson
   - burrito
@@ -33,6 +35,7 @@ library:
   - dovetail
   - dovetail-aeson
   - dovetail-core
+  - file-embed
   - gdw-api
   - lens
   - lens-aeson
