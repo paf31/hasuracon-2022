@@ -37,7 +37,7 @@ makeConfigType tables =
   where
     makeTableConfigType :: Config.TableImport -> Text
     makeTableConfigType (Config.TableImport columns) =
-      "{ " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType c | c@(Config.ColumnImport name _ _) <- columns ] <> " } -> { predicate :: Predicate }"
+      "{ predicate :: { " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType c | c@(Config.ColumnImport name _ _) <- columns ] <> " } -> Predicate }"
       
     makeColumnType :: Config.ColumnImport -> Text
     makeColumnType (Config.ColumnImport _ ty nullable) = 
@@ -51,23 +51,27 @@ makeConfigType tables =
             else baseType
 
 data TableConfig = TableConfig
-  { predicate :: Evaluate.ForeignType HasuraClient.Predicate
+  { predicate :: HashMap Text Text -> Eval () (Evaluate.ForeignType HasuraClient.Predicate)
   }
   deriving stock Generic
-  deriving anyclass (ToValue ctx)
+  deriving anyclass (ToValue ())
+
+data EvaluatedTableConfig = EvaluatedTableConfig
+  { predicate :: HasuraClient.Predicate
+  }
 
 makeDefaultConfig :: HashMap Text Config.TableImport -> Evaluate.Value ()
 makeDefaultConfig = Evaluate.Object . HashMap.map (Evaluate.toValue . makeDefaultTableConfig) where
-  makeDefaultTableConfig :: Config.TableImport -> Evaluate.Value () -> Evaluate.Eval () TableConfig
-  makeDefaultTableConfig _ _ =
-    pure TableConfig 
-      { predicate = Evaluate.ForeignType (HasuraClient.And [])
+  makeDefaultTableConfig :: Config.TableImport -> TableConfig
+  makeDefaultTableConfig _ =
+    TableConfig 
+      { predicate = \_ -> pure (Evaluate.ForeignType (HasuraClient.And []))
       }
 
 evalConfig 
   :: Config.Config
   -> ModuleName
-  -> Interpret () (HashMap Text TableConfig)
+  -> Interpret () (HashMap Text EvaluatedTableConfig)
 evalConfig config moduleName = do
   let defaultConfig = makeDefaultConfig (Config.tables config)
   (untypedConfig, _ty) <- eval @_ @(Value () -> Eval () (Value ())) (Just moduleName) "config :: Supercharger.Config -> Supercharger.Config"
@@ -75,13 +79,15 @@ evalConfig config moduleName = do
     evaluatedConfig <- liftIO $ runEval () (untypedConfig defaultConfig)
     case evaluatedConfig of
       Right (Evaluate.Object tables) -> do
-        let evalTableConfig :: Text -> Value () -> Eval () Program.TableConfig
-            evalTableConfig tbl fn =
-              case HashMap.lookup tbl (Config.tables config) of
-                Just Config.TableImport { columns } -> do
-                  let cols = Evaluate.Object (HashMap.fromList [ (Config.name c, Evaluate.String (Config.name c)) | c <- columns ])
-                  fromValue @_ @Program.TableConfig =<< Evaluate.apply fn cols
-                Nothing -> liftIO $ die "table not configured"
+        let evalTableConfig tbl val = do 
+              cols <- case HashMap.lookup tbl (Config.tables config) of
+                        Just Config.TableImport { columns } -> do
+                          pure (HashMap.fromList [ (columnName, columnName) | Config.ColumnImport columnName _ _ <- columns ])
+                        Nothing -> 
+                          liftIO $ die "Table must be configured in config.yaml file"
+              TableConfig mkPredicate <- fromValue @_ @TableConfig val
+              Evaluate.ForeignType predicate <- mkPredicate cols
+              pure (EvaluatedTableConfig predicate)
         HashMap.traverseWithKey evalTableConfig tables
       Right{} -> 
         liftIO $ die "Config must be a record of tables"

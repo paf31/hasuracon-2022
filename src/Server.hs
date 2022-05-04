@@ -13,7 +13,6 @@ import Data.Text (Text)
 import Data.Text.IO qualified as Text
 import Data.Yaml qualified as Yaml
 import Dovetail
-import Dovetail.Evaluate qualified as Evaluate
 import Dovetail.Core qualified as Core
 import FFI.HTTP qualified as HTTP
 import FFI.HGE qualified as HGE
@@ -36,7 +35,7 @@ import Translate qualified
 api :: Proxy API.Api
 api = Proxy
 
-mkServer :: IORef (HashMap Text Program.TableConfig) -> Config.Config -> Server API.Api
+mkServer :: IORef (HashMap Text Program.EvaluatedTableConfig) -> Config.Config -> Server API.Api
 mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
   getSchema :: Handler API.SchemaResponse
   getSchema = pure (API.SchemaResponse capabilities (map toTableInfo (HashMap.toList tables))) where
@@ -65,7 +64,7 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
     tableConfigs <- liftIO $ IORef.readIORef tableConfigRef
     let hasuraQuery = Translate.toHasuraQuery q
     case HashMap.lookup (HasuraClient.table hasuraQuery) tableConfigs of
-      Just (Program.TableConfig (Evaluate.ForeignType predicate)) -> do
+      Just (Program.EvaluatedTableConfig predicate) -> do
         let newPredicate = 
               case HasuraClient.where_ hasuraQuery of
                 Nothing -> 
@@ -82,7 +81,7 @@ mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
 loadConfig
   :: Config.Config
   -> Eval () [ForeignImport ()]
-  -> IO (Either (InterpretError ()) (HashMap Text Program.TableConfig))
+  -> IO (Either (InterpretError ()) (HashMap Text Program.EvaluatedTableConfig))
 loadConfig config imports = do
   moduleText <- Text.readFile (Config.source config)
   runInterpret () do
