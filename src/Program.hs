@@ -3,7 +3,6 @@
 module Program where
 
 import Config qualified
-import Control.Monad.IO.Class (liftIO)
 import Data.FileEmbed (embedStringFile)
 import Data.Foldable (fold)
 import Data.Text (Text)
@@ -19,25 +18,43 @@ import HasuraClient qualified
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Value qualified as Scalar
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
 import Language.PureScript qualified as P
-import System.Exit (die)
 
 superchargerStaticModule :: Text
 superchargerStaticModule = $(embedStringFile "purs/Supercharger.purs")
 
 superchargerModule :: HashMap Text Config.TableImport -> Text
-superchargerModule tables = Text.unlines
-  [ superchargerStaticModule
-  , ""
-  , "type Config = " <> makeConfigType tables
-  ]
+superchargerModule tables = 
+    Text.unlines
+      [ superchargerStaticModule
+      , ""
+      , "type Config " <> typeVars <> " = " <> makeConfigType tables
+      , ""
+      , "foreign import defaults :: Config " <> Text.unwords [ "()" | _ <- HashMap.keys tables]
+      ]
+  where
+    typeVars = Text.unwords [ "_" <> tableName <> "_extras" | tableName <- HashMap.keys tables]
 
 makeConfigType :: HashMap Text Config.TableImport -> Text
 makeConfigType tables = 
-    "{ " <> Text.intercalate ", " [ name <> " :: " <> makeTableConfigType table | (name, table) <- HashMap.toList tables ] <> " }"
+    "{ " <> Text.intercalate ", " [ name <> " :: " <> makeTableConfigType name table | (name, table) <- HashMap.toList tables ] <> " }"
   where
-    makeTableConfigType :: Config.TableImport -> Text
-    makeTableConfigType (Config.TableImport columns) =
-      "{ predicate :: { " <> Text.intercalate ", " [ name <> " :: Column " <> makeColumnType c | c@(Config.ColumnImport name _ _) <- columns ] <> " } -> Predicate }"
+    makeTableConfigType :: Text -> Config.TableImport -> Text
+    makeTableConfigType tableName (Config.TableImport columns) =
+      Text.concat
+        [ "{ predicate :: { "
+        , Text.intercalate ", " 
+            [ name <> " :: Column " <> makeColumnType c 
+            | c@(Config.ColumnImport name _ _) <- columns 
+            ]
+        , " } -> Predicate, extras :: {"
+        , Text.intercalate ", " 
+            [ name <> " :: " <> makeColumnType c 
+            | c@(Config.ColumnImport name _ _) <- columns 
+            ]
+        , "} -> Record _"
+        , tableName
+        , "_extras }"
+        ]
       
     makeColumnType :: Config.ColumnImport -> Text
     makeColumnType (Config.ColumnImport _ ty nullable) = 
@@ -52,20 +69,23 @@ makeConfigType tables =
 
 data TableConfig = TableConfig
   { predicate :: HashMap Text Text -> Eval () (Evaluate.ForeignType HasuraClient.Predicate)
+  , extras :: HashMap Text (Value ()) -> Eval () (HashMap Text (Value ()))
   }
   deriving stock Generic
   deriving anyclass (ToValue ())
 
 data EvaluatedTableConfig = EvaluatedTableConfig
   { predicate :: HasuraClient.Predicate
+  , extras :: HashMap Text (Value ()) -> Eval () (HashMap Text (Value ()))
   }
 
-makeDefaultConfig :: HashMap Text Config.TableImport -> Evaluate.Value ()
-makeDefaultConfig = Evaluate.Object . HashMap.map (Evaluate.toValue . makeDefaultTableConfig) where
+makeDefaultConfig :: HashMap Text Config.TableImport -> HashMap Text TableConfig
+makeDefaultConfig = HashMap.map makeDefaultTableConfig where
   makeDefaultTableConfig :: Config.TableImport -> TableConfig
   makeDefaultTableConfig _ =
     TableConfig 
       { predicate = \_ -> pure (Evaluate.ForeignType (HasuraClient.And []))
+      , extras = \_ -> pure HashMap.empty
       }
 
 evalConfig 
@@ -73,26 +93,24 @@ evalConfig
   -> ModuleName
   -> Interpret () (HashMap Text EvaluatedTableConfig)
 evalConfig config moduleName = do
-  let defaultConfig = makeDefaultConfig (Config.tables config)
-  (untypedConfig, _ty) <- eval @_ @(Value () -> Eval () (Value ())) (Just moduleName) "config :: Supercharger.Config -> Supercharger.Config"
+  let configExpr = "config :: Supercharger.Config " <> Text.unwords [ "_" | _ <- HashMap.keys (Config.tables config)]
+  (untypedConfig, _ty) <- eval @_ @(Eval () (Value ())) (Just moduleName) configExpr
   liftEval do
-    evaluatedConfig <- liftIO $ runEval () (untypedConfig defaultConfig)
+    evaluatedConfig <- untypedConfig
     case evaluatedConfig of
-      Right (Evaluate.Object tables) -> do
+      Evaluate.Object tables -> do
         let evalTableConfig tbl val = do 
               cols <- case HashMap.lookup tbl (Config.tables config) of
                         Just Config.TableImport { columns } -> do
                           pure (HashMap.fromList [ (columnName, columnName) | Config.ColumnImport columnName _ _ <- columns ])
                         Nothing -> 
-                          liftIO $ die "Table must be configured in config.yaml file"
-              TableConfig mkPredicate <- fromValue @_ @TableConfig val
+                          Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table must be configured in config.yaml file"
+              TableConfig mkPredicate mkExtras <- fromValue @_ @TableConfig val
               Evaluate.ForeignType predicate <- mkPredicate cols
-              pure (EvaluatedTableConfig predicate)
+              pure (EvaluatedTableConfig predicate mkExtras)
         HashMap.traverseWithKey evalTableConfig tables
-      Right{} -> 
-        liftIO $ die "Config must be a record of tables"
-      Left err ->
-        liftIO $ die (renderEvaluationError defaultTerminalRenderValueOptions err)
+      _ -> 
+        Evaluate.throwErrorWithContext $ Evaluate.OtherError "Config must be a record of tables"
 
 install :: HashMap Text Config.TableImport -> Interpret () (Module Ann)
 install tables = do
@@ -171,6 +189,10 @@ install tables = do
         (P.ModuleName "Supercharger") "desc" 
         \c -> do
           pure (Evaluate.ForeignType (HasuraClient.Column c, HasuraClient.Desc))
+          
+    , Evaluate.builtIn @() @(HashMap Text TableConfig)
+        (P.ModuleName "Supercharger") "defaults" 
+        (makeDefaultConfig tables)
     ]
     
   build $ superchargerModule tables
