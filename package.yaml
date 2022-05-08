@@ -140,15 +140,5 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - graphql-supercharger
-    - gdw-api
-
-tests:
-  graphql-supercharger-test:
-    main:                Spec.hs
-    source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - graphql-supercharger
+    - optparse-generic
+    - text

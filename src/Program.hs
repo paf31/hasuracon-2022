@@ -5,6 +5,7 @@ module Program where
 import Config qualified
 import Data.FileEmbed (embedStringFile)
 import Data.Foldable (fold)
+import Data.Functor (($>))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.HashMap.Strict (HashMap)
@@ -88,6 +89,7 @@ makeDefaultConfig = HashMap.map makeDefaultTableConfig where
       , extras = \_ -> pure HashMap.empty
       }
 
+-- TODO: this function should infer the schema and write any extras to the IORef.
 evalConfig 
   :: Config.Config
   -> ModuleName

@@ -3,7 +3,12 @@ module Main where
 import Imports
 import Supercharger
 
+import Prelude hiding ((<), (>), (&&), (==))
+import Prelude as P
+import Data.Array
 import Data.String
+import Data.Maybe (Maybe(..), maybe)
+import JSON
 
 config :: Config _ _ _
 config = defaults
@@ -11,8 +16,9 @@ config = defaults
     { predicate = \{ artist_id } ->
         artist_id > 5.0 && artist_id < 100.0
     , extras = \{ title } ->
-        { foo: (getUser { user: "paf31" }).stargazers_count
-        }
+        let query = "name:" <> title
+            { releases } = musicbrainz { query }
+         in { mbid: _.id <$> head releases }
     } 
   }
     
