@@ -11,6 +11,7 @@ import Data.Text qualified as Text
 import Data.Yaml qualified as Yaml
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Value qualified as Scalar
 import Network.Wreq qualified as Wreq
+import System.IO.Unsafe (unsafeInterleaveIO)
 
 newtype Column = Column { getColumn :: Text }
   deriving Show
@@ -115,7 +116,7 @@ queryText tbl cols =
   \}"
     
 runQuery :: Text -> Query -> IO [Aeson.Object]
-runQuery engineUrl q = do
+runQuery engineUrl q = unsafeInterleaveIO do
   let graphqlUrl = engineUrl <> "/v1/graphql"
   res <- Wreq.asJSON @_ @Aeson.Value =<< Wreq.post (Text.unpack graphqlUrl) (encodeQuery q)
   pure (res ^.. Wreq.responseBody . key "data" . key (table q) . _Array . traverse . _Object)

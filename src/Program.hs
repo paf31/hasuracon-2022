@@ -5,7 +5,6 @@ module Program where
 import Config qualified
 import Data.FileEmbed (embedStringFile)
 import Data.Foldable (fold)
-import Data.Functor (($>))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.HashMap.Strict (HashMap)
@@ -19,6 +18,7 @@ import HasuraClient qualified
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Value qualified as Scalar
 import Hasura.Backends.DataWrapper.API.V0.Scalar.Type qualified as ScalarType
 import Language.PureScript qualified as P
+import Language.PureScript.Label qualified as Label
 
 superchargerStaticModule :: Text
 superchargerStaticModule = $(embedStringFile "purs/Supercharger.purs")
@@ -76,7 +76,8 @@ data TableConfig = TableConfig
   deriving anyclass (ToValue ())
 
 data EvaluatedTableConfig = EvaluatedTableConfig
-  { predicate :: HasuraClient.Predicate
+  { tableType :: TableConfigType
+  , predicate :: HasuraClient.Predicate
   , extras :: HashMap Text (Value ()) -> Eval () (HashMap Text (Value ()))
   }
 
@@ -89,14 +90,85 @@ makeDefaultConfig = HashMap.map makeDefaultTableConfig where
       , extras = \_ -> pure HashMap.empty
       }
 
--- TODO: this function should infer the schema and write any extras to the IORef.
+data ExtraColumn = ExtraColumn
+  { type_ :: ScalarType.Type
+  , nullable :: Bool
+  }
+
+data TableConfigType = TableConfigType
+  { extraColumns :: HashMap Text ExtraColumn
+  }
+
+extractTableConfigTypes :: P.SourceType -> Eval () (HashMap Text TableConfigType)
+extractTableConfigTypes ty =
+  case ty of
+    P.TypeApp _ (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Record"))) ty -> do
+      let (knownFields, _) = P.rowToSortedList ty
+          
+          extractFromTableType :: P.RowListItem P.SourceAnn -> Eval () (Text, TableConfigType)
+          extractFromTableType (P.RowListItem _ (Label.Label tableName') ty) = do
+            tableName <- Evaluate.evalPSString tableName' 
+            case ty of
+              P.TypeApp _ (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Record"))) ty' -> do
+                let (tableConfigFields, _) = P.rowToSortedList ty'
+                let fromTableField (P.RowListItem _ (Label.Label name) ty) = 
+                      (,) <$> Evaluate.evalPSString name 
+                          <*> pure ty
+                tableConfigFields <- traverse fromTableField tableConfigFields
+                case lookup "extras" tableConfigFields of
+                  Just extrasType -> do
+                    extraColumns <- extractFromExtrasType extrasType
+                    pure (tableName, TableConfigType extraColumns)
+                  Nothing ->
+                    Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table configuration is missing the 'extras' field"  
+              _ ->
+                Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table configuration must be a record"
+          
+          extractFromExtrasType :: P.SourceType -> Eval () (HashMap Text ExtraColumn)
+          extractFromExtrasType (P.TypeApp _ (P.TypeApp _ (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Function"))) _) cod) =
+            case cod of
+              P.TypeApp _ (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Record"))) ty'' -> do
+                let (extrasFields, _) = P.rowToSortedList ty''
+                HashMap.fromList <$> traverse fromExtrasField extrasFields
+              _ ->
+                Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table configuration 'extras' function must return a record"
+          extractFromExtrasType _ =
+            Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table configuration 'extras' field must be a function"
+          
+          fromExtrasField :: P.RowListItem P.SourceAnn -> Eval () (Text, ExtraColumn)
+          fromExtrasField (P.RowListItem _ (Label.Label name) ty) = 
+            (,) <$> Evaluate.evalPSString name 
+                <*> fromSourceType ty
+                
+          fromSourceType :: P.SourceType -> Eval () ExtraColumn
+          fromSourceType (P.TypeApp _ (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Data.Maybe")) (P.ProperName "Maybe"))) ty) =
+            ExtraColumn <$> fromPrimSourceType ty <*> pure True
+          fromSourceType ty =
+            ExtraColumn <$> fromPrimSourceType ty <*> pure False  
+            
+          fromPrimSourceType :: P.SourceType -> Eval () ScalarType.Type
+          fromPrimSourceType (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Number"))) =
+            pure ScalarType.NumberTy
+          fromPrimSourceType (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Int"))) =
+            pure ScalarType.NumberTy
+          fromPrimSourceType (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "String"))) =
+            pure ScalarType.StringTy
+          fromPrimSourceType (P.TypeConstructor _ (P.Qualified (Just (P.ModuleName "Prim")) (P.ProperName "Boolean"))) =
+            pure ScalarType.BoolTy
+          fromPrimSourceType _ =
+            Evaluate.throwErrorWithContext $ Evaluate.OtherError "field in extras config is not serializable"
+      HashMap.fromList <$> traverse extractFromTableType knownFields
+    _ -> 
+      Evaluate.throwErrorWithContext $ Evaluate.OtherError "Config must be a record of tables"
+
 evalConfig 
   :: Config.Config
   -> ModuleName
   -> Interpret () (HashMap Text EvaluatedTableConfig)
 evalConfig config moduleName = do
   let configExpr = "config :: Supercharger.Config " <> Text.unwords [ "_" | _ <- HashMap.keys (Config.tables config)]
-  (untypedConfig, _ty) <- eval @_ @(Eval () (Value ())) (Just moduleName) configExpr
+  (untypedConfig, ty) <- eval @_ @(Eval () (Value ())) (Just moduleName) configExpr
+  tableTypes <- liftEval $ extractTableConfigTypes ty
   liftEval do
     evaluatedConfig <- untypedConfig
     case evaluatedConfig of
@@ -107,9 +179,14 @@ evalConfig config moduleName = do
                           pure (HashMap.fromList [ (columnName, columnName) | Config.ColumnImport columnName _ _ <- columns ])
                         Nothing -> 
                           Evaluate.throwErrorWithContext $ Evaluate.OtherError "Table must be configured in config.yaml file"
+              tableType <- case HashMap.lookup tbl tableTypes of
+                             Just tableType -> do
+                               pure tableType
+                             Nothing -> 
+                               Evaluate.throwErrorWithContext $ Evaluate.OtherError "Unable to find table in runtime configuration"
               TableConfig mkPredicate mkExtras <- fromValue @_ @TableConfig val
               Evaluate.ForeignType predicate <- mkPredicate cols
-              pure (EvaluatedTableConfig predicate mkExtras)
+              pure (EvaluatedTableConfig tableType predicate mkExtras)
         HashMap.traverseWithKey evalTableConfig tables
       _ -> 
         Evaluate.throwErrorWithContext $ Evaluate.OtherError "Config must be a record of tables"

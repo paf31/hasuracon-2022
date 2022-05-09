@@ -41,48 +41,78 @@ api = Proxy
 mkServer :: IORef (HashMap Text Program.EvaluatedTableConfig) -> Config.Config -> Server API.Api
 mkServer tableConfigRef Config.Config{..} = getSchema :<|> runQuery where
   getSchema :: Handler API.SchemaResponse
-  getSchema = pure (API.SchemaResponse capabilities (map toTableInfo (HashMap.toList tables))) where
-    toTableInfo :: (Text, Config.TableImport) -> Table.TableInfo
-    toTableInfo (name, tbl) = Table.TableInfo
-      { dtiName        = Table.TableName name
-      , dtiColumns     = [ Column.ColumnInfo 
-                           { dciName = Column.ColumnName columnName
-                           , dciType = dataType
-                           , dciNullable = nullable
-                           , dciDescription = Nothing
-                           }
-                         | Config.ColumnImport columnName dataType nullable <- Config.columns tbl
-                         ]
-      , dtiPrimaryKey  = Nothing
-      , dtiDescription = Nothing
-      }
-    
-    capabilities :: API.Capabilities
-    capabilities = API.Capabilities 
-      { dcRelationships = False 
-      }
+  getSchema = do
+      tableConfigs <- liftIO $ IORef.readIORef tableConfigRef
+      pure (API.SchemaResponse capabilities (map (toTableInfo tableConfigs) (HashMap.toList tables)))     
+    where
+      toTableInfo :: HashMap Text Program.EvaluatedTableConfig -> (Text, Config.TableImport) -> Table.TableInfo
+      toTableInfo tableConfigs (name, tbl) =
+        let Program.EvaluatedTableConfig (Program.TableConfigType extraColumns) _ _ = 
+              case HashMap.lookup name tableConfigs of
+                Just tableType -> tableType
+                Nothing -> error "table was not configured"
+         in Table.TableInfo
+              { dtiName        = Table.TableName name
+              , dtiColumns     = [ Column.ColumnInfo 
+                                   { dciName = Column.ColumnName columnName
+                                   , dciType = dataType
+                                   , dciNullable = nullable
+                                   , dciDescription = Nothing
+                                   }
+                                 | Config.ColumnImport columnName dataType nullable <- Config.columns tbl
+                                 ] <> 
+                                 [ Column.ColumnInfo 
+                                   { dciName = Column.ColumnName columnName
+                                   , dciType = dataType
+                                   , dciNullable = nullable
+                                   , dciDescription = Nothing
+                                   }
+                                 | (columnName, Program.ExtraColumn dataType nullable) <- HashMap.toList extraColumns
+                                 ]
+              , dtiPrimaryKey  = Nothing
+              , dtiDescription = Nothing
+              }
+      
+      capabilities :: API.Capabilities
+      capabilities = API.Capabilities 
+        { dcRelationships = False 
+        }
                 
   runQuery :: API.Query -> Handler API.QueryResponse
   runQuery q = do
     tableConfigs <- liftIO $ IORef.readIORef tableConfigRef
     let hasuraQuery = Translate.toHasuraQuery q
     case HashMap.lookup (HasuraClient.table hasuraQuery) tableConfigs of
-      Just (Program.EvaluatedTableConfig predicate mkExtras) -> do
-        let newPredicate = 
+      Just (Program.EvaluatedTableConfig (Program.TableConfigType extraColumns) predicate mkExtras) -> do
+        let extraFields = HashMap.keys extraColumns
+            newPredicate = 
               case HasuraClient.where_ hasuraQuery of
                 Nothing -> 
                   Just predicate
                 Just predicate' -> 
                   Just $ HasuraClient.And [predicate, predicate']
-            newQuery = hasuraQuery { HasuraClient.where_ = newPredicate }
+            newQuery = hasuraQuery 
+              { HasuraClient.fields = 
+                  filter
+                    (\(HasuraClient.Column c) -> c `notElem` extraFields) 
+                    (HasuraClient.fields hasuraQuery)
+              , HasuraClient.where_ = 
+                  newPredicate 
+              }
         rawData <- liftIO $ HasuraClient.runQuery engineUrl newQuery
         let Just (Config.TableImport columns) = HashMap.lookup (HasuraClient.table hasuraQuery) tables
-            columnsByName = HashMap.fromList [ (col, c) | c@(Config.ColumnImport col _ _) <- columns ]
+            requestedFields = [ c | HasuraClient.Column c <- HasuraClient.fields hasuraQuery ]
+            columnsByName = HashMap.fromList [ (col, c) 
+                                             | c@(Config.ColumnImport col _ _) <- columns
+                                             , col `elem` requestedFields
+                                             ]
         e <- liftIO $ runEval () do
           rows <- traverse (\row -> do
             vals <- sequence (alignWith Utils.toPSValue columnsByName row)
+            -- TODO: only include those extras which were requested
             extras <- mkExtras vals
-            pure (row <> fmap Utils.fromPSValue extras)) rawData
+            let allFields = row <> fmap Utils.fromPSValue extras
+            pure (HashMap.filterWithKey (\k _ -> k `elem` requestedFields) allFields)) rawData
           pure (API.QueryResponse rows)
         case e of
           Left err -> do
