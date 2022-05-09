@@ -1,8 +1,28 @@
-{-# LANGUAGE ImportQualifiedPost   #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DeriveAnyClass      #-}
+{-# LANGUAGE DerivingStrategies  #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings   #-}
 
 module Main where
 
+import Data.Text (Text)
+import GHC.Generics (Generic)
+import Options.Generic
 import Server qualified
 
+data Command
+  = Serve { config :: FilePath }
+  | Init { engineUrl :: Text }
+  deriving stock (Generic, Show)
+
+instance ParseRecord Command
+
 main :: IO ()
-main = Server.main
+main = do
+  command <- getRecord "graphql-supercharger"
+  case command of
+    Serve config ->
+      Server.server config
+    Init engineUrl ->
+      pure () -- TODO

@@ -4,6 +4,7 @@ module Supercharger
   , binaryAnd, binaryOr
   , (==), (!=), (<), (<=), (>), (>=), (&&), (||)
   , asc, desc
+  , defaults
   , module Reexports
   ) where
 

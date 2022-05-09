@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 9b46d7dfeea5886b2bce6659e1dff92e18bc110b7e10cb846cc01fccc71d45ea
+-- hash: 4b5a99f42697d6c216a47775fff3576cb9880bec9dfb4de3ed726fe7293d5d60
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -33,6 +33,7 @@ library
       Program
       Server
       Translate
+      Utils
   other-modules:
       Paths_graphql_supercharger
   hs-source-dirs:
@@ -169,19 +170,7 @@ executable graphql-supercharger-exe
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
-    , gdw-api
     , graphql-supercharger
-  default-language: Haskell2010
-
-test-suite graphql-supercharger-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_graphql_supercharger
-  hs-source-dirs:
-      test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      base >=4.7 && <5
-    , graphql-supercharger
+    , optparse-generic
+    , text
   default-language: Haskell2010

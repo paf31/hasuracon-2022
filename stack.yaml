@@ -12,7 +12,7 @@ extra-deps:
     - autodocodec
     - autodocodec-openapi3
 - github: paf31/dovetail
-  commit: 864fbee8c11a64592481b1588621c6775ea2a2ff
+  commit: ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9
   subdirs: 
     - dovetail
     - dovetail-aeson

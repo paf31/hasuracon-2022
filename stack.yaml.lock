@@ -31,44 +31,44 @@ packages:
     subdir: autodocodec-openapi3
     url: https://github.com/NorfairKing/autodocodec/archive/45a112f16e132acde73994f6542ad996db6c5aa2.tar.gz
 - completed:
-    size: 1961687
+    size: 1961963
     subdir: dovetail
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
     name: dovetail
     version: 0.1.1.0
-    sha256: fdef87a56f9325fd868b85c6e6f2c339d90902af20fdaa72c4b29c32fc835cd3
+    sha256: 9e323f41ae60a3529670f90388b95c1c511b301a48fa3206dcf8cac0c712ef72
     pantry-tree:
       size: 1720
       sha256: e5d8d7f905e0aa87f97a0163d4cd75297c337261b47c1c586cc7b145cf3232b3
   original:
     subdir: dovetail
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
 - completed:
-    size: 1961687
+    size: 1961963
     subdir: dovetail-aeson
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
     name: dovetail-aeson
     version: 0.1.0.0
-    sha256: fdef87a56f9325fd868b85c6e6f2c339d90902af20fdaa72c4b29c32fc835cd3
+    sha256: 9e323f41ae60a3529670f90388b95c1c511b301a48fa3206dcf8cac0c712ef72
     pantry-tree:
       size: 227
-      sha256: 3ca2944a960666ee28f51afbec50998145368f72cc1b7950a1695ac7350fe795
+      sha256: 3a055ffd546f5738e513a625a5deb8bec2be5793704ced8e742cb9b3beb0e0bb
   original:
     subdir: dovetail-aeson
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
 - completed:
-    size: 1961687
+    size: 1961963
     subdir: dovetail-core
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
     name: dovetail-core
     version: 0.1.0.0
-    sha256: fdef87a56f9325fd868b85c6e6f2c339d90902af20fdaa72c4b29c32fc835cd3
+    sha256: 9e323f41ae60a3529670f90388b95c1c511b301a48fa3206dcf8cac0c712ef72
     pantry-tree:
       size: 48722
       sha256: 43b4514195e06f440477f12d302641f48b87d3d0f4c927c4f6446d90772d4ec6
   original:
     subdir: dovetail-core
-    url: https://github.com/paf31/dovetail/archive/864fbee8c11a64592481b1588621c6775ea2a2ff.tar.gz
+    url: https://github.com/paf31/dovetail/archive/ea58c3a1ef0eb3f29ea359b6cdf822788c1926a9.tar.gz
 - completed:
     hackage: language-javascript-0.7.0.0@sha256:3eab0262b8ac5621936a4beab6a0f97d0e00a63455a8b0e3ac1547b4088dae7d,3898
     pantry-tree:

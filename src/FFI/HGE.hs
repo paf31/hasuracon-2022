@@ -7,10 +7,8 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HashMap
 import Data.List.NonEmpty (nonEmpty)
 import Data.Text (Text)
-import Data.These (These(..))
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Data.Yaml qualified as Yaml
 import Dovetail
 import Dovetail.Evaluate qualified as Evaluate
 import Dovetail.FFI.Internal qualified as FFI
@@ -21,6 +19,7 @@ import Language.PureScript qualified as P
 import Language.PureScript.Label qualified as Label
 import Language.PureScript.Names qualified as Names
 import Language.PureScript.PSString qualified as PSString
+import Utils qualified
 
 data FFIQuery = FFIQuery
   { where_ :: WrappedMaybe (Evaluate.ForeignType HasuraClient.Predicate)
@@ -69,7 +68,7 @@ tableToImport engineUrl (name, Config.TableImport columns) =
                 , HasuraClient.offset = fromIntegral <$> getWrappedMaybe (offset query)
                 }
           res <- liftIO $ HasuraClient.runQuery engineUrl hasuraQuery
-          Vector.fromList <$> traverse (\o -> sequence (alignWith toPSValue columnsByName o)) res
+          Vector.fromList <$> traverse (\o -> sequence (alignWith Utils.toPSValue columnsByName o)) res
       }
   where
     columnType :: Config.ColumnImport -> P.SourceType
@@ -89,32 +88,7 @@ tableToImport engineUrl (name, Config.TableImport columns) =
        in if nullable
             then maybeTy baseType
             else baseType
-    
-    toPSValue :: These Config.ColumnImport Yaml.Value -> Eval () (Evaluate.Value ())
-    toPSValue (These (Config.ColumnImport _ _ True) Yaml.Null) = 
-      pure (Evaluate.Constructor (Names.ProperName "Nothing") [])
-    toPSValue (These (Config.ColumnImport _ ty True) val) = 
-      (Evaluate.Constructor (Names.ProperName "Just") . (:[])) <$> toNonNullPSValue ty val
-    toPSValue (These (Config.ColumnImport _ ty False) val) =
-      toNonNullPSValue ty val
-    toPSValue (This (Config.ColumnImport columnName _ _)) =
-      Evaluate.throwErrorWithContext (Evaluate.OtherError ("error in gql response: missing field " <> columnName))
-    toPSValue That{} =
-      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: unexpected fields")
-      
-    toNonNullPSValue ScalarType.StringTy (Yaml.String s) = 
-      pure $ Evaluate.String s
-    toNonNullPSValue ScalarType.StringTy _ =
-      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected string")
-    toNonNullPSValue ScalarType.NumberTy (Yaml.Number d) = 
-      pure $ Evaluate.Number (realToFrac d)
-    toNonNullPSValue ScalarType.NumberTy _ =
-      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected number")
-    toNonNullPSValue ScalarType.BoolTy (Yaml.Bool b) = 
-      pure $ Evaluate.Bool b
-    toNonNullPSValue ScalarType.BoolTy _ =
-      Evaluate.throwErrorWithContext (Evaluate.OtherError "error in gql response: expected boolean")
-    
+
     cols = P.TypeApp P.nullSourceAnn P.tyRecord colsRow
     colsRow = P.rowFromList 
       ( [P.srcRowListItem (Label.Label (PSString.mkString col)) (columnType c) | c@(Config.ColumnImport col _ _) <- columns]

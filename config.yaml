@@ -9,6 +9,16 @@ imports:
         , name :: Prim.String
         , stargazers_count :: Prim.Int
         }
+  musicbrainz:
+    uri: https://musicbrainz.org/ws/2/release?query={query}&fmt=json
+    response: | 
+      { releases ::
+          Prim.Array
+            { title :: Prim.String
+            , id :: Prim.String
+            , date :: JSON.Nullable Prim.String
+            }
+      }
 tables:
   albums:
     columns:
