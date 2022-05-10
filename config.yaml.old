@@ -1,35 +1,42 @@
-source: server.purs
+source: server.musicbrainz.purs
 engineUrl: http://localhost:9000
+imports:
+  musicbrainz:
+    uri: https://musicbrainz.org/ws/2/release?query={query}&fmt=json
+    response: | 
+      { releases ::
+          Prim.Array
+            { title :: Prim.String
+            , id :: Prim.String
+            , date :: JSON.Nullable Prim.String
+            }
+      }
 tables:
   albums:
     columns:
-      - name: artist_id
-        type: number
       - name: id
         type: number
       - name: title
         type: string
+      - name: artist_id
+        type: number
   artists:
     columns:
       - name: id
         type: number
       - name: name
         type: string
-        nullable: true
   tracks:
     columns:
       - name: album_id
         type: number
-        nullable: true
       - name: bytes
         type: number
-        nullable: true
       - name: composer
         type: string
         nullable: true
       - name: genre_id
         type: number
-        nullable: true
       - name: id
         type: number
       - name: media_type_id
@@ -38,14 +45,5 @@ tables:
         type: number
       - name: name
         type: string
-# # HTTP GET imports:
-# #
-# imports:
-#   getGitHubRepos:
-#     uri: https://api.github.com/users{/user}/repos
-#     response: |
-#       Prim.Array
-#         { id :: Prim.Int
-#         , name :: Prim.String
-#         , stargazers_count :: Prim.Int
-#         }
+      - name: unit_price
+        type: number 

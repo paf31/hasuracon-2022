@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4b5a99f42697d6c216a47775fff3576cb9880bec9dfb4de3ed726fe7293d5d60
+-- hash: c5d79ea949796ca42d93ee745f16b4732fe733321a38a6ad7355460a40d48698
 
 name:           graphql-supercharger
 version:        0.1.0.0
@@ -30,6 +30,7 @@ library
       FFI.HGE
       FFI.HTTP
       HasuraClient
+      Init
       Program
       Server
       Translate

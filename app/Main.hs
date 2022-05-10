@@ -7,6 +7,7 @@
 module Main where
 
 import Data.Text (Text)
+import Init qualified
 import GHC.Generics (Generic)
 import Options.Generic
 import Server qualified
@@ -25,4 +26,4 @@ main = do
     Serve config ->
       Server.server config
     Init engineUrl ->
-      pure () -- TODO
+      Init.main engineUrl
