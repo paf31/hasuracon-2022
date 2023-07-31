@@ -1,4 +1,4 @@
-## Code or No Code - Extending Hasura with Scripting Capabilities
+## `hasuracon-2022`
 
 These are the incomplete notes I prepared for a talk at HasuraCon 2022, for a talk which I was unable to actually give due to other commitments. It consists of an extended demo of [Dovetail](https://github.com/paf31/dovetail/) along with a discussion of some of the trade-offs between code and no-code architectures. The talk is incomplete but the demo is a fairly comprehensive tour of the capabilities of Dovetail. 
 
